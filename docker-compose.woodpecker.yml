@@ -1,0 +1,26 @@
+# docker-compose.woodpecker.yml
+version: '3.8'
+
+services:
+  woodpecker-server:
+    image: woodpeckerci/woodpecker-server:v2.1.0
+    ports:
+      - "8000:8000"
+    volumes:
+      - woodpecker-server-data:/var/lib/woodpecker
+    environment:
+      - WOODPECKER_OPEN=true
+      - WOODPECKER_HOST=http://localhost:8000
+
+  woodpecker-agent:
+    image: woodpeckerci/woodpecker-agent:v2.1.0
+    command: agent
+    restart: always
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    environment:
+      - WOODPECKER_SERVER=woodpecker-server:9000
+      - WOODPECKER_MAX_WORKERS=2
+
+volumes:
+  woodpecker-server-data:

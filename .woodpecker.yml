@@ -1,0 +1,11 @@
+# .woodpecker.yml
+pipeline:
+  run-tests:
+    image: mcr.microsoft.com/playwright:v1.40.0-focal
+    environment:
+      - ASSERTGRID_HOST_URL=http://localhost:3000
+      - ASSERTGRID_CI_API_KEY=ag_live_secret_key_123456789
+    commands:
+      - npm ci
+      - npx playwright test
+      - echo "AssertGrid tests completed!"
