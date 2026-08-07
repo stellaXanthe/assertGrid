@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, use } from "react";
-import { useRouter, useParams } from "next/navigation";
+import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -12,14 +12,13 @@ import Link from "next/link";
 export default function CreateTestPage({
   params,
 }: {
-  params: Promise<{ id: string }> | { id: string };
+  params: Promise<{ id: string }>;
 }) {
   const router = useRouter();
   const supabase = createClient();
 
-  const resolvedParams = params instanceof Promise ? use(params) : params;
-  const urlParams = useParams();
-  const projectId = (resolvedParams?.id || urlParams?.id) as string;
+  // Unwrap asynchronous params for Next.js 15
+  const { id: projectId } = use(params);
 
   const [name, setName] = useState("");
   const [submitting, setSubmitting] = useState(false);

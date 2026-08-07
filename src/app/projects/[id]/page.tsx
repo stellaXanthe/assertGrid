@@ -1,7 +1,6 @@
 "use client";
 
 import { useState, useEffect, use } from "react";
-import { useParams } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -45,8 +44,8 @@ interface TestCase {
   steps: Array<{
     method?: string;
     url?: string;
-    headers?: Record<string, any>;
-    body?: any;
+    headers?: Record<string, unknown>;
+    body?: unknown;
   }>;
   created_at: string;
 }
@@ -59,13 +58,10 @@ interface Project {
 export default function ProjectDetailsPage({
   params,
 }: {
-  params: Promise<{ id: string }> | { id: string };
+  params: Promise<{ id: string }>;
 }) {
   const supabase = createClient();
-
-  const resolvedParams = params instanceof Promise ? use(params) : params;
-  const urlParams = useParams();
-  const projectId = (resolvedParams?.id || urlParams?.id) as string;
+  const { id: projectId } = use(params);
 
   const [project, setProject] = useState<Project | null>(null);
   const [testCases, setTestCases] = useState<TestCase[]>([]);
@@ -75,43 +71,41 @@ export default function ProjectDetailsPage({
   const [runProgress, setRunProgress] = useState({ current: 0, total: 0 });
   const [runResults, setRunResults] = useState<Record<string, TestRunResult>>({});
 
-  // Execution Details Modal State
   const [selectedTestResult, setSelectedTestResult] = useState<{
     testName: string;
     result: TestRunResult;
   } | null>(null);
 
-  // History Modal State
   const [historyOpen, setHistoryOpen] = useState(false);
   const [historyRuns, setHistoryRuns] = useState<HistoricalRun[]>([]);
   const [loadingHistory, setLoadingHistory] = useState(false);
 
-  async function fetchProjectData() {
-    if (!projectId) return;
-    setLoading(true);
-
-    const { data: projectData } = await supabase
-      .from("projects")
-      .select("*")
-      .eq("id", projectId)
-      .single();
-
-    if (projectData) setProject(projectData);
-
-    const { data: testsData } = await supabase
-      .from("test_cases")
-      .select("*")
-      .eq("project_id", projectId)
-      .order("created_at", { ascending: false });
-
-    if (testsData) setTestCases(testsData);
-
-    setLoading(false);
-  }
-
   useEffect(() => {
+    async function fetchProjectData() {
+      if (!projectId) return;
+      setLoading(true);
+
+      const { data: projectData } = await supabase
+        .from("projects")
+        .select("*")
+        .eq("id", projectId)
+        .single();
+
+      if (projectData) setProject(projectData);
+
+      const { data: testsData } = await supabase
+        .from("test_cases")
+        .select("*")
+        .eq("project_id", projectId)
+        .order("created_at", { ascending: false });
+
+      if (testsData) setTestCases(testsData);
+
+      setLoading(false);
+    }
+
     fetchProjectData();
-  }, [projectId]);
+  }, [projectId, supabase]);
 
   async function fetchRunHistory() {
     setLoadingHistory(true);
@@ -367,7 +361,6 @@ export default function ProjectDetailsPage({
         </div>
       </div>
 
-      {/* Execution Results Modal */}
       <Dialog
         open={!!selectedTestResult}
         onOpenChange={(open) => !open && setSelectedTestResult(null)}
@@ -449,7 +442,6 @@ export default function ProjectDetailsPage({
         </DialogContent>
       </Dialog>
 
-      {/* History Modal */}
       <Dialog open={historyOpen} onOpenChange={setHistoryOpen}>
         <DialogContent className="max-w-3xl max-h-[85vh] overflow-y-auto">
           <DialogHeader>

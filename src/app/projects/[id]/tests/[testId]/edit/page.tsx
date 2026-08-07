@@ -1,56 +1,48 @@
 "use client";
 
 import { useState, useEffect, use } from "react";
-import { useRouter, useParams } from "next/navigation";
+import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { StepBuilder, TestStep } from "@/components/test-builder/StepBuilder";
 import Link from "next/link";
 
-interface TestCase {
-  id: string;
-  name: string;
-  type: string;
-  steps: Array<{
-    method?: string;
-    url?: string;
-    headers?: Record<string, any>;
-    body?: any;
-    expected_status?: number;
-  }>;
+interface DBSchemaStep {
+  type?: string;
+  name?: string;
+  action?: string;
+  url?: string;
+  selector?: string;
+  value?: string;
+  method?: string;
+  headers?: unknown;
+  body?: unknown;
+  expected_status?: number;
+  extract?: Record<string, string>;
 }
 
 export default function EditTestPage({
   params,
 }: {
-  params: Promise<{ id: string; testId: string }> | { id: string; testId: string };
+  params: Promise<{ id: string; testId: string }>;
 }) {
   const router = useRouter();
   const supabase = createClient();
 
-  const resolvedParams = params instanceof Promise ? use(params) : params;
-  const urlParams = useParams();
+  // Unwrap asynchronous params for Next.js 15
+  const { id: projectId, testId } = use(params);
 
-  const projectId = (resolvedParams?.id || urlParams?.id) as string;
-  const testId = (resolvedParams?.testId || urlParams?.testId) as string;
-
+  const [name, setName] = useState("");
+  const [testType, setTestType] = useState<string>("api"); // Store original DB test type
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
-
-  // Form states
-  const [name, setName] = useState("");
-  const [method, setMethod] = useState("GET");
-  const [url, setUrl] = useState("");
-  const [expectedStatus, setExpectedStatus] = useState("200");
-  const [headersJson, setHeadersJson] = useState("{}");
-  const [bodyJson, setBodyJson] = useState("{}");
+  const [steps, setSteps] = useState<TestStep[]>([]);
 
   useEffect(() => {
-    async function loadTestCase() {
-      if (!testId) return;
+    async function fetchTestCase() {
       setLoading(true);
-
       const { data, error } = await supabase
         .from("test_cases")
         .select("*")
@@ -64,21 +56,57 @@ export default function EditTestPage({
       }
 
       setName(data.name || "");
-      const step = data.steps?.[0] || {};
-      setMethod(step.method || "GET");
-      setUrl(step.url || "");
-      setExpectedStatus(String(step.expected_status ?? 200));
-      setHeadersJson(JSON.stringify(step.headers || {}, null, 2));
-      setBodyJson(
-        typeof step.body === "object"
-          ? JSON.stringify(step.body || {}, null, 2)
-          : String(step.body || "{}")
-      );
+      setTestType(data.type || "api"); // Preserve existing valid type from DB
+
+      if (Array.isArray(data.steps)) {
+        const mappedSteps: TestStep[] = data.steps.map((s: DBSchemaStep) => {
+          if (s.type === "browser") {
+            return {
+              name: s.name || "",
+              type: "browser",
+              action: s.action || "goto",
+              url: s.url || "",
+              selector: s.selector || "",
+              value: s.value || "",
+              method: "GET",
+              headers: "{}",
+              body: "{}",
+              expected_status: 200,
+              extractRules: [],
+            };
+          }
+
+          const extractRules = Object.entries(s.extract || {}).map(
+            ([varName, jsonPath]) => ({
+              varName,
+              jsonPath: String(jsonPath),
+            })
+          );
+
+          return {
+            name: s.name || "",
+            type: "api",
+            method: s.method || "GET",
+            url: s.url || "",
+            headers: JSON.stringify(s.headers || {}, null, 2),
+            body: JSON.stringify(s.body || {}, null, 2),
+            expected_status: s.expected_status ?? 200,
+            extractRules,
+            action: "goto",
+            selector: "",
+            value: "",
+          };
+        });
+
+        setSteps(mappedSteps);
+      }
 
       setLoading(false);
     }
 
-    loadTestCase();
+    if (testId) {
+      fetchTestCase();
+    }
   }, [testId, projectId, router, supabase]);
 
   async function handleUpdate(e: React.FormEvent) {
@@ -86,41 +114,61 @@ export default function EditTestPage({
     setSubmitting(true);
 
     try {
-      let parsedHeaders = {};
-      let parsedBody = {};
-
-      try {
-        parsedHeaders = JSON.parse(headersJson || "{}");
-      } catch {
-        alert("Invalid JSON format in Headers.");
-        setSubmitting(false);
-        return;
-      }
-
-      if (["POST", "PUT", "PATCH"].includes(method)) {
-        try {
-          parsedBody = JSON.parse(bodyJson || "{}");
-        } catch {
-          alert("Invalid JSON format in Request Body.");
-          setSubmitting(false);
-          return;
+      const formattedSteps = steps.map((s) => {
+        if (s.type === "browser") {
+          return {
+            name: s.name,
+            type: "browser",
+            action: s.action,
+            url: s.url,
+            selector: s.selector,
+            value: s.value,
+          };
         }
-      }
 
-      const updatedStep = {
-        name: name,
-        method: method,
-        url: url,
-        headers: parsedHeaders,
-        body: ["POST", "PUT", "PATCH"].includes(method) ? parsedBody : null,
-        expected_status: parseInt(expectedStatus, 10) || 200,
-      };
+        let parsedHeaders = {};
+        let parsedBody = null;
 
+        try {
+          parsedHeaders = JSON.parse(s.headers || "{}");
+        } catch {
+          throw new Error(`Invalid JSON headers in step: "${s.name}"`);
+        }
+
+        if (["POST", "PUT", "PATCH"].includes(s.method || "")) {
+          try {
+            parsedBody = JSON.parse(s.body || "{}");
+          } catch {
+            throw new Error(`Invalid JSON body in step: "${s.name}"`);
+          }
+        }
+
+        const extractObject: Record<string, string> = {};
+        (s.extractRules || []).forEach((rule) => {
+          if (rule.varName.trim() && rule.jsonPath.trim()) {
+            extractObject[rule.varName.trim()] = rule.jsonPath.trim();
+          }
+        });
+
+        return {
+          name: s.name,
+          type: "api",
+          method: s.method,
+          url: s.url,
+          headers: parsedHeaders,
+          body: parsedBody,
+          expected_status: s.expected_status,
+          extract: extractObject,
+        };
+      });
+
+      // Pass the preserved testType instead of re-calculating a string that violates DB constraints
       const { error } = await supabase
         .from("test_cases")
         .update({
           name,
-          steps: [updatedStep],
+          type: testType,
+          steps: formattedSteps,
         })
         .eq("id", testId);
 
@@ -129,9 +177,10 @@ export default function EditTestPage({
       } else {
         router.push(`/projects/${projectId}`);
       }
-    } catch (err: any) {
-      console.error(err);
-      alert("An error occurred while updating the test.");
+    } catch (err: unknown) {
+      const errorMessage =
+        err instanceof Error ? err.message : "Failed to update test.";
+      alert(errorMessage);
     } finally {
       setSubmitting(false);
     }
@@ -147,114 +196,43 @@ export default function EditTestPage({
 
   return (
     <div className="min-h-screen bg-gray-50 p-8">
-      <div className="max-w-3xl mx-auto space-y-6">
-        <div>
-          <Link
-            href={`/projects/${projectId}`}
-            className="text-sm text-blue-600 hover:underline"
-          >
-            ← Back to Project
-          </Link>
-        </div>
+      <div className="max-w-4xl mx-auto space-y-6">
+        <Link
+          href={`/projects/${projectId}`}
+          className="text-sm text-blue-600 hover:underline"
+        >
+          ← Back to Project
+        </Link>
 
         <Card>
           <CardHeader>
-            <CardTitle className="text-2xl font-bold">Edit API Test</CardTitle>
+            <CardTitle className="text-2xl font-bold">Edit Test Case</CardTitle>
           </CardHeader>
           <CardContent>
-            <form onSubmit={handleUpdate} className="space-y-4">
+            <form onSubmit={handleUpdate} className="space-y-6">
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Test Name
+                  Test Flow Name
                 </label>
                 <Input
                   type="text"
                   value={name}
                   onChange={(e) => setName(e.target.value)}
-                  placeholder="e.g. Update User Profile"
+                  placeholder="e.g. End-to-End User Login & Dashboard Check"
                   required
                 />
               </div>
 
-              <div className="grid grid-cols-4 gap-4">
-                <div className="col-span-1">
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    HTTP Method
-                  </label>
-                  <select
-                    value={method}
-                    onChange={(e) => setMethod(e.target.value)}
-                    className="w-full border rounded-md p-2 bg-white text-sm font-mono border-input"
-                  >
-                    <option value="GET">GET</option>
-                    <option value="POST">POST</option>
-                    <option value="PUT">PUT</option>
-                    <option value="PATCH">PATCH</option>
-                    <option value="DELETE">DELETE</option>
-                  </select>
-                </div>
+              <StepBuilder steps={steps} onChange={setSteps} />
 
-                <div className="col-span-3">
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Target Endpoint URL
-                  </label>
-                  <Input
-                    type="url"
-                    value={url}
-                    onChange={(e) => setUrl(e.target.value)}
-                    placeholder="https://api.example.com/v1/users"
-                    required
-                  />
-                </div>
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Expected HTTP Status Code
-                </label>
-                <Input
-                  type="number"
-                  value={expectedStatus}
-                  onChange={(e) => setExpectedStatus(e.target.value)}
-                  placeholder="200"
-                  required
-                />
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Request Headers (JSON)
-                </label>
-                <textarea
-                  value={headersJson}
-                  onChange={(e) => setHeadersJson(e.target.value)}
-                  rows={3}
-                  className="w-full font-mono text-xs border rounded-md p-2 bg-gray-50 border-input"
-                />
-              </div>
-
-              {["POST", "PUT", "PATCH"].includes(method) && (
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Request Body (JSON)
-                  </label>
-                  <textarea
-                    value={bodyJson}
-                    onChange={(e) => setBodyJson(e.target.value)}
-                    rows={5}
-                    className="w-full font-mono text-xs border rounded-md p-2 bg-gray-50 border-input"
-                  />
-                </div>
-              )}
-
-              <div className="flex justify-end gap-3 pt-4">
+              <div className="flex justify-end gap-3 pt-4 border-t">
                 <Link href={`/projects/${projectId}`}>
                   <Button type="button" variant="outline">
                     Cancel
                   </Button>
                 </Link>
                 <Button type="submit" disabled={submitting}>
-                  {submitting ? "Saving..." : "Save Changes"}
+                  {submitting ? "Updating..." : "Update Test Case"}
                 </Button>
               </div>
             </form>
