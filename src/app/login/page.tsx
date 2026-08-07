@@ -1,94 +1,109 @@
 "use client";
 
 import { useState } from "react";
-import { createClient } from "@/lib/supabase/client";
 import { useRouter } from "next/navigation";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
+import { createClient } from "@/lib/supabase/client";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import { Button } from "@/components/ui/button";
 
 export default function LoginPage() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [isSignUp, setIsSignUp] = useState(false);
   const [loading, setLoading] = useState(false);
-  const [message, setMessage] = useState("");
+  const [error, setError] = useState<string | null>(null);
+
   const router = useRouter();
   const supabase = createClient();
 
-  async function handleLogin() {
+  const handleAuth = async (e: React.FormEvent) => {
+    e.preventDefault();
     setLoading(true);
-    setMessage("");
+    setError(null);
 
-    const { error } = await supabase.auth.signInWithPassword({
-      email,
-      password,
-    });
-
-    setLoading(false);
-
-    if (error) {
-      setMessage(error.message);
-    } else {
-      router.push("/dashboard");
-      router.refresh();
+    try {
+      if (isSignUp) {
+        const { error: signUpError } = await supabase.auth.signUp({
+          email,
+          password,
+        });
+        if (signUpError) throw signUpError;
+        alert("Check your email for the confirmation link!");
+      } else {
+        const { error: signInError } = await supabase.auth.signInWithPassword({
+          email,
+          password,
+        });
+        if (signInError) throw signInError;
+        router.push("/dashboard");
+      }
+    } catch (err: unknown) {
+      if (err instanceof Error) {
+        setError(err.message);
+      } else {
+        setError("An unexpected error occurred.");
+      }
+    } finally {
+      setLoading(false);
     }
-  }
-
-  async function handleSignUp() {
-    setLoading(true);
-    setMessage("");
-
-    const { error } = await supabase.auth.signUp({
-      email,
-      password,
-    });
-
-    setLoading(false);
-
-    if (error) {
-      setMessage(error.message);
-    } else {
-      setMessage("Check your email for the confirmation link!");
-    }
-  }
+  };
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gray-50">
-      <Card className="w-full max-w-md">
-        <CardHeader>
-          <CardTitle className="text-2xl text-center">TestFlow</CardTitle>
+    <div className="min-h-[80vh] flex items-center justify-center p-4">
+      <Card className="w-full max-w-md shadow-sm border border-gray-100">
+        <CardHeader className="text-center pb-4">
+          <CardTitle className="text-2xl font-bold tracking-tight text-gray-900">
+            AssertGrid
+          </CardTitle>
         </CardHeader>
-        <CardContent className="space-y-4">
-          <Input
-            type="email"
-            placeholder="Email"
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-          />
-          <Input
-            type="password"
-            placeholder="Password"
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-          />
+        <CardContent>
+          <form onSubmit={handleAuth} className="space-y-4">
+            {error && (
+              <div className="p-3 text-sm text-red-600 bg-red-50 rounded-md border border-red-100">
+                {error}
+              </div>
+            )}
+            <div>
+              <Input
+                type="email"
+                placeholder="Email"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                required
+              />
+            </div>
+            <div>
+              <Input
+                type="password"
+                placeholder="Password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                required
+              />
+            </div>
 
-          {message && (
-            <p className="text-sm text-center text-red-500">{message}</p>
-          )}
-
-          <div className="flex gap-2">
-            <Button className="flex-1" onClick={handleLogin} disabled={loading}>
-              {loading ? "Loading..." : "Login"}
-            </Button>
-            <Button
-              className="flex-1"
-              variant="outline"
-              onClick={handleSignUp}
-              disabled={loading}
-            >
-              Sign Up
-            </Button>
-          </div>
+            <div className="flex gap-2 pt-2">
+              <Button
+                type="submit"
+                className="flex-1"
+                variant={!isSignUp ? "default" : "outline"}
+                onClick={() => setIsSignUp(false)}
+                disabled={loading}
+              >
+                {loading && !isSignUp ? "Loading..." : "Login"}
+              </Button>
+              <Button
+                type="submit"
+                className="flex-1"
+                variant={isSignUp ? "default" : "outline"}
+                onClick={() => setIsSignUp(true)}
+                disabled={loading}
+              >
+                {loading && isSignUp ? "Loading..." : "Sign Up"}
+              </Button>
+            </div>
+          </form>
         </CardContent>
       </Card>
     </div>
