@@ -1,30 +1,30 @@
 "use client";
 
 import { useState } from "react";
+import { useChat } from "@ai-sdk/react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 
-interface Message {
-  role: "user" | "assistant";
-  content: string;
-}
-
 interface AiAssistantProps {
+  projectId?: string;
   currentContext?: any;
 }
 
-export function AiAssistant({ currentContext }: AiAssistantProps) {
+export function AiAssistant({ projectId, currentContext }: AiAssistantProps) {
   const [isOpen, setIsOpen] = useState(false);
-  const [messages, setMessages] = useState<Message[]>([
-    {
-      role: "assistant",
-      content:
-        "Welcome to **AssertGrid AI**! 🚀\n\nI can help you build web automation flows, configure API tests, or answer any questions about using AssertGrid.",
-    },
-  ]);
   const [input, setInput] = useState("");
-  const [loading, setLoading] = useState(false);
+
+  // Clean useChat hook without transport/fetch type mismatch issues
+  const { messages, sendMessage, status } = useChat({
+    api: "/api/agent",
+    body: {
+      projectId,
+      context: currentContext,
+    },
+  } as any);
+
+  const isLoading = status === "submitted" || status === "streaming";
 
   const quickPrompts = [
     "How do I automate a login page?",
@@ -32,57 +32,40 @@ export function AiAssistant({ currentContext }: AiAssistantProps) {
     "What browser actions does AssertGrid support?",
   ];
 
-  async function sendMessage(textToSend: string) {
-    if (!textToSend.trim() || loading) return;
-
-    const userMsg: Message = { role: "user", content: textToSend.trim() };
-    const updatedMessages = [...messages, userMsg];
-    setMessages(updatedMessages);
-    setInput("");
-    setLoading(true);
-
-    try {
-      const res = await fetch("/api/ai-assistant", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          messages: updatedMessages.map((m) => ({
-            role: m.role,
-            content: m.content,
-          })),
+  const handleQuickPrompt = (promptText: string) => {
+    if (isLoading) return;
+    sendMessage(
+      {
+        role: "user",
+        parts: [{ type: "text", text: promptText }],
+      },
+      {
+        body: {
+          projectId,
           context: currentContext,
-        }),
-      });
-
-      const data = await res.json();
-      if (res.ok && data.reply) {
-        setMessages((prev) => [
-          ...prev,
-          { role: "assistant", content: data.reply },
-        ]);
-      } else {
-        setMessages((prev) => [
-          ...prev,
-          {
-            role: "assistant",
-            content: `⚠️ Error: ${data.error || "Failed to get response."}`,
-          },
-        ]);
+        },
       }
-    } catch (err: any) {
-      setMessages((prev) => [
-        ...prev,
-        { role: "assistant", content: `⚠️ Network error: ${err.message}` },
-      ]);
-    } finally {
-      setLoading(false);
-    }
-  }
+    );
+  };
 
-  function handleSend(e: React.FormEvent) {
+  const onSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    sendMessage(input);
-  }
+    if (!input.trim() || isLoading) return;
+
+    sendMessage(
+      {
+        role: "user",
+        parts: [{ type: "text", text: input.trim() }],
+      },
+      {
+        body: {
+          projectId,
+          context: currentContext,
+        },
+      }
+    );
+    setInput("");
+  };
 
   return (
     <div className="fixed bottom-6 right-6 z-50">
@@ -110,9 +93,9 @@ export function AiAssistant({ currentContext }: AiAssistantProps) {
           </CardHeader>
 
           <CardContent className="flex-1 overflow-y-auto p-4 space-y-3 text-xs">
-            {messages.map((m, idx) => (
+            {messages.map((m: any) => (
               <div
-                key={idx}
+                key={m.id}
                 className={`p-3 rounded-lg ${
                   m.role === "user"
                     ? "bg-blue-50 text-blue-900 ml-6 border border-blue-100"
@@ -122,20 +105,51 @@ export function AiAssistant({ currentContext }: AiAssistantProps) {
                 <div className="font-bold mb-1 text-[10px] uppercase text-gray-500">
                   {m.role === "user" ? "You" : "AssertGrid AI"}
                 </div>
+
                 <div className="whitespace-pre-wrap font-sans leading-relaxed">
-                  {m.content}
+                  {m.parts?.map((part: any, index: number) => {
+                    if (part.type === "text") {
+                      return <span key={index}>{part.text}</span>;
+                    }
+
+                    if (part.type === "tool-invocation") {
+                      const toolInvocation = part.toolInvocation;
+                      const hasResult = toolInvocation && "result" in toolInvocation;
+
+                      if (toolInvocation?.toolName === "createTestCase") {
+                        return (
+                          <div
+                            key={toolInvocation.toolCallId || index}
+                            className="mt-2 p-2 rounded bg-slate-50 border border-slate-200 text-[11px] font-mono"
+                          >
+                            {!hasResult ? (
+                              <div className="flex items-center gap-2 text-amber-600">
+                                <span className="animate-spin">⚙️</span>
+                                Creating test case in Supabase...
+                              </div>
+                            ) : (
+                              <div className="text-emerald-600">
+                                ✓ Test Case Created! (ID: {toolInvocation.result?.testCaseId})
+                              </div>
+                            )}
+                          </div>
+                        );
+                      }
+                    }
+                    return null;
+                  })}
                 </div>
               </div>
             ))}
 
-            {loading && (
+            {isLoading && (
               <div className="bg-gray-50 p-2.5 rounded text-gray-400 italic">
-                AssertGrid AI is analyzing your request...
+                AssertGrid AI is thinking...
               </div>
             )}
 
             {/* Quick Suggestions */}
-            {messages.length <= 1 && !loading && (
+            {messages.length <= 1 && !isLoading && (
               <div className="pt-2 space-y-1.5">
                 <p className="text-[10px] font-semibold text-gray-400 uppercase">
                   Suggested Questions
@@ -143,7 +157,7 @@ export function AiAssistant({ currentContext }: AiAssistantProps) {
                 {quickPrompts.map((prompt, i) => (
                   <button
                     key={i}
-                    onClick={() => sendMessage(prompt)}
+                    onClick={() => handleQuickPrompt(prompt)}
                     className="w-full text-left p-2 rounded bg-blue-50/50 hover:bg-blue-100/60 text-blue-700 border border-blue-100 text-[11px] transition-colors"
                   >
                     💡 {prompt}
@@ -153,7 +167,7 @@ export function AiAssistant({ currentContext }: AiAssistantProps) {
             )}
           </CardContent>
 
-          <form onSubmit={handleSend} className="p-3 border-t flex gap-2 bg-gray-50">
+          <form onSubmit={onSubmit} className="p-3 border-t flex gap-2 bg-gray-50">
             <Input
               type="text"
               value={input}
@@ -163,7 +177,7 @@ export function AiAssistant({ currentContext }: AiAssistantProps) {
             />
             <Button
               type="submit"
-              disabled={loading || !input.trim()}
+              disabled={isLoading || !input.trim()}
               size="sm"
               className="bg-blue-600 text-xs h-9 px-4"
             >

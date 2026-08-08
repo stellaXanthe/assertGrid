@@ -5,6 +5,7 @@ import { useParams, useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { AiAssistant } from "@/components/AiAssistant";
 
 export default function ProjectDetailsPage() {
   const params = useParams();
@@ -150,7 +151,7 @@ export default function ProjectDetailsPage() {
   }
 
   return (
-    <div className="max-w-6xl mx-auto p-6 space-y-6">
+    <div className="max-w-6xl mx-auto p-6 space-y-6 relative">
       {/* Project Header */}
       <Card className="border shadow-sm">
         <CardHeader className="flex flex-row items-center justify-between pb-2">
@@ -338,6 +339,16 @@ export default function ProjectDetailsPage() {
           </Card>
         </div>
       )}
+
+      {/* Floating AI Assistant Widget */}
+      <AiAssistant
+        projectId={projectId}
+        currentContext={{
+          projectName: project?.name,
+          testCount: tests.length,
+          page: "project_details",
+        }}
+      />
     </div>
   );
 }
