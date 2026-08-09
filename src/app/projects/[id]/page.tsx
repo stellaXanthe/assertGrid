@@ -6,12 +6,6 @@ import { createClient } from "@/lib/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
 
 export interface StepDefinition {
   id?: string;
@@ -561,145 +555,175 @@ export default function ProjectWorkspacePage({
         </div>
       </div>
 
-      {/* Complete Fullscreen Dialog (Overrides Radix/shadcn Defaults) */}
-      {runResult && (
-        <Dialog open={modalOpen} onOpenChange={setModalOpen}>
-          <DialogContent className="fixed top-0 left-0 translate-x-0 translate-y-0 w-screen h-screen max-w-none max-h-none rounded-none m-0 p-6 bg-white flex flex-col justify-between border-none z-50">
-            {/* Modal Header */}
-            <DialogHeader className="flex flex-row items-center justify-between border-b pb-4 shrink-0">
-              <div>
-                <DialogTitle className="text-2xl font-bold text-gray-900">
+      {/* FULL-SCREEN OVERLAY WORKSPACE (Replaces dialog constrained container) */}
+      {modalOpen && runResult && (
+        <div className="fixed inset-0 z-[9999] bg-slate-950 flex flex-col w-screen h-screen overflow-hidden text-slate-100 animate-in fade-in duration-150">
+          {/* Top Bar Navigation */}
+          <header className="h-16 border-b border-slate-800 bg-slate-900/90 px-6 flex items-center justify-between shrink-0 shadow-md">
+            <div className="flex items-center gap-4">
+              <div className="flex items-center gap-2">
+                <span className="h-3 w-3 rounded-full bg-blue-500 animate-pulse" />
+                <h2 className="text-lg font-bold text-white tracking-tight">
                   {runResult.testName}
-                </DialogTitle>
-                <p className="text-xs text-gray-500 capitalize mt-1">
+                </h2>
+              </div>
+              <div className="hidden sm:flex items-center gap-3 text-xs text-slate-400 border-l border-slate-700 pl-4 font-mono">
+                <span>
                   Mode:{" "}
-                  <span className="font-semibold text-gray-800">
+                  <strong className="text-slate-200 capitalize">
                     {runResult.executionMode}
-                  </span>{" "}
-                  | Latency: <strong>{runResult.totalLatency}ms</strong> | Total
-                  Steps: <strong>{runResult.stepsEvaluated}</strong>
-                </p>
+                  </strong>
+                </span>
+                <span>•</span>
+                <span>
+                  Duration:{" "}
+                  <strong className="text-slate-200">
+                    {runResult.totalLatency}ms
+                  </strong>
+                </span>
+                <span>•</span>
+                <span>
+                  Steps:{" "}
+                  <strong className="text-slate-200">
+                    {runResult.stepsEvaluated}
+                  </strong>
+                </span>
               </div>
-              <div className="flex items-center gap-4">
-                <Badge
-                  className={
-                    runResult.overallStatus === "passed"
-                      ? "bg-emerald-100 text-emerald-700 hover:bg-emerald-100 uppercase text-sm px-3 py-1"
-                      : "bg-red-100 text-red-700 hover:bg-red-100 uppercase text-sm px-3 py-1"
-                  }
-                >
-                  {runResult.overallStatus}
-                </Badge>
+            </div>
+
+            <div className="flex items-center gap-3">
+              <Badge
+                className={
+                  runResult.overallStatus === "passed"
+                    ? "bg-emerald-500/20 text-emerald-400 border-emerald-500/40 uppercase text-xs px-3 py-1 font-mono font-bold"
+                    : "bg-rose-500/20 text-rose-400 border-rose-500/40 uppercase text-xs px-3 py-1 font-mono font-bold"
+                }
+              >
+                {runResult.overallStatus}
+              </Badge>
+
+              {runResult.targetUrl && (
                 <Button
-                  onClick={() => setModalOpen(false)}
-                  className="bg-black text-white hover:bg-gray-800 cursor-pointer text-xs"
+                  size="sm"
+                  variant="outline"
+                  onClick={() => window.open(runResult.targetUrl!, "_blank")}
+                  className="bg-slate-800 border-slate-700 text-slate-200 hover:bg-slate-700 text-xs hidden md:flex"
                 >
-                  ✕ Close Fullscreen
+                  🌐 Open Target Webpage ↗
                 </Button>
+              )}
+
+              <Button
+                onClick={() => setModalOpen(false)}
+                className="bg-rose-600 hover:bg-rose-700 text-white font-semibold text-xs px-4"
+              >
+                ✕ Close Workspace
+              </Button>
+            </div>
+          </header>
+
+          {/* Main Full-Width Split Layout */}
+          <div className="flex-1 flex overflow-hidden">
+            {/* Sidebar Step Inspector List */}
+            <aside className="w-80 lg:w-96 border-r border-slate-800 bg-slate-900/50 flex flex-col shrink-0">
+              <div className="p-4 border-b border-slate-800 flex items-center justify-between bg-slate-900/80">
+                <span className="text-xs font-bold uppercase tracking-wider text-slate-400 font-mono">
+                  Execution Flow
+                </span>
+                <span className="text-xs bg-slate-800 text-slate-300 font-mono px-2 py-0.5 rounded">
+                  {runResult.steps.length} Steps
+                </span>
               </div>
-            </DialogHeader>
 
-            {/* Main Full-Width Content Container */}
-            <div className="grid grid-cols-12 gap-6 py-4 flex-1 overflow-hidden">
-              {/* Left Column - Step Navigation List */}
-              <div className="col-span-3 flex flex-col space-y-2 overflow-y-auto pr-2 border-r border-gray-200">
-                <h4 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">
-                  Captured Steps ({runResult.steps.length})
-                </h4>
-
+              <div className="flex-1 overflow-y-auto p-3 space-y-2">
                 {runResult.steps.map((step, idx) => {
                   const isSelected = activeStepIndex === idx;
                   return (
                     <div
                       key={step.step}
                       onClick={() => setActiveStepIndex(idx)}
-                      className={`p-3 border rounded-lg cursor-pointer transition-all flex flex-col justify-between gap-2 ${
+                      className={`p-3.5 rounded-lg cursor-pointer transition-all border ${
                         isSelected
-                          ? "border-blue-600 bg-blue-50/50 ring-2 ring-blue-500/20"
-                          : "bg-white hover:border-gray-400 hover:bg-gray-50"
+                          ? "bg-blue-600/15 border-blue-500 shadow-md ring-1 ring-blue-500/30"
+                          : "bg-slate-900/60 border-slate-800 hover:bg-slate-800/60 hover:border-slate-700"
                       }`}
                     >
-                      <div className="flex justify-between items-start">
-                        <span className="text-xs font-mono font-bold text-gray-500">
-                          Step #{step.step}
+                      <div className="flex items-center justify-between mb-1.5">
+                        <span className="text-xs font-mono font-bold text-blue-400">
+                          STEP #{step.step}
                         </span>
                         <span
-                          className={`text-xs font-bold ${
-                            step.passed ? "text-emerald-600" : "text-red-600"
+                          className={`text-[11px] font-bold font-mono px-2 py-0.5 rounded ${
+                            step.passed
+                              ? "bg-emerald-500/10 text-emerald-400 border border-emerald-500/20"
+                              : "bg-rose-500/10 text-rose-400 border border-rose-500/20"
                           }`}
                         >
-                          {step.passed ? "✓ PASSED" : "✕ FAILED"}
+                          {step.passed ? "PASSED" : "FAILED"}
                         </span>
                       </div>
 
-                      <p className="text-sm font-medium text-gray-900">
+                      <p className="text-sm font-semibold text-slate-100 truncate">
                         {step.title}
                       </p>
 
-                      <div className="flex justify-between items-center text-xs text-gray-500 pt-1 border-t border-gray-100">
-                        <span>
-                          Status: <strong>{step.statusReturned}</strong>
-                        </span>
+                      <div className="flex items-center justify-between text-xs text-slate-400 mt-2 pt-2 border-t border-slate-800/80 font-mono">
+                        <span>HTTP {step.statusReturned}</span>
                         {step.screenshot ? (
-                          <span className="text-[10px] text-emerald-700 bg-emerald-100 px-2 py-0.5 rounded font-mono font-semibold">
-                            📷 Screenshot
+                          <span className="text-emerald-400 flex items-center gap-1">
+                            📷 Frame Captured
                           </span>
                         ) : (
-                          <span className="text-[10px] text-gray-400 font-mono">
-                            No Screenshot
-                          </span>
+                          <span className="text-slate-500">No Image</span>
                         )}
                       </div>
                     </div>
                   );
                 })}
               </div>
+            </aside>
 
-              {/* Right Column - Large Screenshot Inspector */}
-              <div className="col-span-9 flex flex-col bg-slate-950 rounded-xl p-4 text-white overflow-hidden border border-slate-800 shadow-2xl">
-                <div className="flex items-center justify-between pb-3 border-b border-slate-800 shrink-0">
-                  <div className="flex items-center gap-2">
-                    <span className="relative flex h-2.5 w-2.5">
-                      <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
-                      <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-emerald-500"></span>
-                    </span>
-                    <span className="font-semibold text-sm text-slate-200">
-                      Step #{runResult.steps[activeStepIndex]?.step}:{" "}
-                      {runResult.steps[activeStepIndex]?.title}
-                    </span>
-                  </div>
-
-                  {runResult.targetUrl && (
-                    <Button
-                      size="sm"
-                      variant="ghost"
-                      onClick={() => window.open(runResult.targetUrl!, "_blank")}
-                      className="text-xs text-emerald-400 hover:text-emerald-300 p-0 h-auto cursor-pointer"
-                    >
-                      Open Target URL ↗
-                    </Button>
-                  )}
+            {/* High-Resolution Screenshot Inspector Viewport */}
+            <main className="flex-1 flex flex-col bg-slate-950 p-6 overflow-hidden">
+              <div className="flex items-center justify-between pb-3 mb-4 border-b border-slate-800/80 shrink-0">
+                <div className="flex items-center gap-3">
+                  <span className="px-2.5 py-1 bg-blue-500/10 border border-blue-500/30 text-blue-400 rounded text-xs font-mono font-bold">
+                    STEP {runResult.steps[activeStepIndex]?.step ?? 1}
+                  </span>
+                  <h3 className="text-base font-semibold text-slate-200">
+                    {runResult.steps[activeStepIndex]?.title}
+                  </h3>
                 </div>
 
-                <div className="flex-1 flex items-center justify-center overflow-auto mt-3 rounded-lg border border-slate-800/80 bg-black/40 p-2">
-                  {runResult.steps[activeStepIndex]?.screenshot ? (
-                    /* eslint-disable-next-line @next/next/no-img-element */
+                <div className="text-xs text-slate-400 font-mono">
+                  Status Code:{" "}
+                  <span className="text-emerald-400 font-bold">
+                    {runResult.steps[activeStepIndex]?.statusReturned}
+                  </span>
+                </div>
+              </div>
+
+              {/* Responsive Image Display Box */}
+              <div className="flex-1 relative bg-slate-900/40 border border-slate-800/90 rounded-xl flex items-center justify-center p-4 overflow-hidden shadow-inner">
+                {runResult.steps[activeStepIndex]?.screenshot ? (
+                  <div className="w-full h-full flex items-center justify-center relative">
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
                     <img
                       src={runResult.steps[activeStepIndex].screenshot!}
                       alt={`Step ${runResult.steps[activeStepIndex].step} Screenshot`}
-                      className="max-w-full max-h-full object-contain rounded shadow-2xl border border-slate-800"
+                      className="max-w-full max-h-full object-contain rounded-lg border border-slate-800 shadow-2xl transition-all duration-200"
                     />
-                  ) : (
-                    <div className="text-center p-8 text-slate-500 text-xs">
-                      <p className="text-2xl mb-2">🖼️</p>
-                      No screenshot captured for this step.
-                    </div>
-                  )}
-                </div>
+                  </div>
+                ) : (
+                  <div className="flex flex-col items-center justify-center text-slate-500 space-y-2">
+                    <span className="text-4xl">🖥️</span>
+                    <p className="text-sm">No screenshot captured for this step.</p>
+                  </div>
+                )}
               </div>
-            </div>
-          </DialogContent>
-        </Dialog>
+            </main>
+          </div>
+        </div>
       )}
     </div>
   );
