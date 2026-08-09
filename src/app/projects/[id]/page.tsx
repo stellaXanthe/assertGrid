@@ -34,6 +34,7 @@ interface TestStepResult {
   statusReturned: number;
   expected: number;
   passed: boolean;
+  screenshot?: string | null;
 }
 
 interface TestRunResult {
@@ -43,6 +44,7 @@ interface TestRunResult {
   totalLatency: number;
   stepsEvaluated: number;
   steps: TestStepResult[];
+  liveEmbedUrl?: string | null;
 }
 
 interface TestItem {
@@ -69,7 +71,6 @@ export default function ProjectWorkspacePage({
 }) {
   const supabase = createClient();
 
-  // Handle both React 19 async params and synchronous params
   const resolvedParams = params instanceof Promise ? React.use(params) : params;
   const projectId = resolvedParams?.id;
 
@@ -77,8 +78,9 @@ export default function ProjectWorkspacePage({
   const [fetchingTests, setFetchingTests] = useState(true);
   const [modalOpen, setModalOpen] = useState(false);
   const [runResult, setRunResult] = useState<TestRunResult | null>(null);
+  const [activeStepScreenshot, setActiveStepScreenshot] = useState<string | null>(null);
 
-  // Execution Mode State - Headed enabled by default or selectable freely
+  // Execution Mode Selection
   const [isHeaded, setIsHeaded] = useState(false);
 
   // Workspace Test Cases
@@ -92,7 +94,6 @@ export default function ProjectWorkspacePage({
     failedExecutions: 0,
   });
 
-  // Calculate isolated project health metrics
   const loadProjectMetrics = useCallback(async () => {
     if (!projectId) return;
 
@@ -140,7 +141,6 @@ export default function ProjectWorkspacePage({
     }
   }, [projectId, supabase]);
 
-  // Load test cases and metrics
   useEffect(() => {
     async function loadWorkspaceData() {
       if (!projectId) return;
@@ -165,7 +165,6 @@ export default function ProjectWorkspacePage({
         }));
         setTests(mappedData);
       } else {
-        // Default test if empty
         setTests([
           {
             id: "test-login-123",
@@ -212,7 +211,6 @@ export default function ProjectWorkspacePage({
     loadWorkspaceData();
   }, [projectId, supabase, loadProjectMetrics]);
 
-  // Reset Executions
   const handleResetExecutions = async () => {
     if (!projectId) return;
     if (
@@ -242,7 +240,6 @@ export default function ProjectWorkspacePage({
     }
   };
 
-  // Run single test item
   const handleRunTest = async (testItem: TestItem) => {
     if (!projectId) {
       alert("Project ID is missing.");
@@ -255,6 +252,7 @@ export default function ProjectWorkspacePage({
 
     let stepsEvaluated: TestStepResult[] = [];
     let isPassed = true;
+    let liveEmbedUrl: string | null = null;
 
     try {
       const res = await fetch("/api/run-test", {
@@ -268,7 +266,7 @@ export default function ProjectWorkspacePage({
           url: testItem.url,
           steps: testItem.steps || [],
           expected_status: testItem.expected_status || 200,
-          headless: !isHeaded, // Directly passes false when isHeaded is active
+          headless: !isHeaded,
         }),
       });
 
@@ -276,6 +274,7 @@ export default function ProjectWorkspacePage({
         const liveData = await res.json();
         stepsEvaluated = liveData.steps || [];
         isPassed = liveData.passed ?? true;
+        liveEmbedUrl = liveData.liveEmbedUrl || null;
       } else {
         let errorMessage = "Server processing error.";
         try {
@@ -307,9 +306,12 @@ export default function ProjectWorkspacePage({
       totalLatency: calculatedLatency,
       stepsEvaluated: stepsEvaluated.length,
       steps: stepsEvaluated,
+      liveEmbedUrl,
     });
 
-    // Save test execution entry to Supabase
+    const firstScreenshot = stepsEvaluated.find((s) => s.screenshot)?.screenshot;
+    setActiveStepScreenshot(firstScreenshot || null);
+
     try {
       const payload = {
         project_id: projectId,
@@ -379,7 +381,6 @@ export default function ProjectWorkspacePage({
             </div>
 
             <div className="flex flex-wrap items-center gap-3">
-              {/* Fully Enabled Mode Toggle */}
               <div className="flex items-center bg-gray-100 p-1 rounded-lg border border-gray-200">
                 <button
                   type="button"
@@ -395,7 +396,7 @@ export default function ProjectWorkspacePage({
                 <button
                   type="button"
                   onClick={() => setIsHeaded(true)}
-                  title="Launch browser GUI while running tests"
+                  title="Launch live UI mode"
                   className={`px-3 py-1.5 text-xs font-semibold rounded-md transition-all cursor-pointer ${
                     isHeaded
                       ? "bg-white text-gray-900 shadow-sm"
@@ -558,10 +559,10 @@ export default function ProjectWorkspacePage({
         </div>
       </div>
 
-      {/* Execution Results Dialog */}
+      {/* Execution Results & Interactive Live UI Modal */}
       {runResult && (
         <Dialog open={modalOpen} onOpenChange={setModalOpen}>
-          <DialogContent className="max-w-xl p-6 bg-white rounded-xl">
+          <DialogContent className="max-w-3xl p-6 bg-white rounded-xl">
             <DialogHeader className="flex flex-row items-center justify-between border-b pb-4">
               <div>
                 <DialogTitle className="text-xl font-bold">
@@ -595,15 +596,64 @@ export default function ProjectWorkspacePage({
                 </span>
               </div>
 
-              <div className="space-y-3 max-h-[350px] overflow-y-auto pr-1">
+              {/* Headed Interactive Browser Stream View */}
+              {runResult.executionMode === "headed" && (
+                <div className="border rounded-lg overflow-hidden bg-black shadow-lg">
+                  <div className="bg-gray-800 px-3 py-1.5 flex items-center justify-between text-xs text-gray-300">
+                    <span className="flex items-center gap-1.5">
+                      <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 inline-block animate-ping"></span>
+                      <span className="font-semibold text-white">
+                        Live Interactive Remote View
+                      </span>
+                    </span>
+                    <span className="text-[10px] text-gray-400">
+                      Fully clickable session hosted in cloud browser
+                    </span>
+                  </div>
+
+                  {runResult.liveEmbedUrl ? (
+                    <iframe
+                      src={runResult.liveEmbedUrl}
+                      className="w-full h-[450px] border-none"
+                      allow="autoplay; encrypted-media; fullscreen; clipboard-write"
+                    />
+                  ) : activeStepScreenshot ? (
+                    /* eslint-disable-next-line @next/next/no-img-element */
+                    <img
+                      src={activeStepScreenshot}
+                      alt="Live Browser UI View"
+                      className="w-full h-auto max-h-[300px] object-contain bg-gray-950"
+                    />
+                  ) : (
+                    <div className="p-8 text-center text-xs text-gray-400">
+                      No interactive session URL available. Set BROWSERLESS_API_KEY in Vercel settings.
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Step Execution Logs */}
+              <div className="space-y-2 max-h-[200px] overflow-y-auto pr-1">
                 {runResult.steps.map((step) => (
                   <div
                     key={step.step}
-                    className="p-3 border rounded-lg flex justify-between items-center bg-white"
+                    onClick={() =>
+                      step.screenshot && setActiveStepScreenshot(step.screenshot)
+                    }
+                    className={`p-3 border rounded-lg flex justify-between items-center transition-all ${
+                      step.screenshot
+                        ? "cursor-pointer hover:border-blue-400 bg-blue-50/20"
+                        : "bg-white"
+                    }`}
                   >
                     <div>
-                      <p className="text-sm font-medium text-gray-800">
-                        {step.title}
+                      <p className="text-sm font-medium text-gray-800 flex items-center gap-2">
+                        <span>{step.title}</span>
+                        {step.screenshot && (
+                          <span className="text-[10px] text-blue-600 bg-blue-100 px-1.5 py-0.5 rounded">
+                            📷 Snapshot
+                          </span>
+                        )}
                       </p>
                       <p className="text-xs text-gray-500 mt-0.5">
                         Status Returned: {step.statusReturned} | Expected:{" "}
