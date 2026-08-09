@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import React, { useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -31,15 +31,18 @@ interface TestRunResult {
 export default function ProjectWorkspacePage({
   params,
 }: {
-  params: { id: string };
+  params: Promise<{ id: string }> | { id: string };
 }) {
   const supabase = createClient();
+
+  // Safely unwrap params across Next.js versions
+  const resolvedParams = params instanceof Promise ? React.use(params) : params;
+  const projectId = resolvedParams?.id;
 
   const [loading, setLoading] = useState(false);
   const [modalOpen, setModalOpen] = useState(false);
   const [runResult, setRunResult] = useState<TestRunResult | null>(null);
 
-  // Active test suite configuration
   const activeTest = {
     id: "test-login-123",
     name: "Login Page",
@@ -48,10 +51,14 @@ export default function ProjectWorkspacePage({
   };
 
   const handleRunTest = async () => {
+    if (!projectId) {
+      alert("Error: No Project ID found in URL route.");
+      return;
+    }
+
     setLoading(true);
     const startTime = performance.now();
 
-    // 1. Simulate/Evaluate test steps
     const mockSteps: TestStep[] = [
       {
         step: 1,
@@ -84,11 +91,10 @@ export default function ProjectWorkspacePage({
     ];
 
     const endTime = performance.now();
-    const calculatedLatency = Math.round(endTime - startTime) + 550; // Total latency
+    const calculatedLatency = Math.round(endTime - startTime) + 550;
     const isPassed = mockSteps.every((s) => s.passed);
     const overallStatus: "PASSED" | "FAILED" = isPassed ? "PASSED" : "FAILED";
 
-    // Set UI state for modal
     setRunResult({
       testName: activeTest.name,
       overallStatus,
@@ -97,18 +103,19 @@ export default function ProjectWorkspacePage({
       steps: mockSteps,
     });
 
-    // 2. Insert execution log into the correct Supabase table ('test_runs')
     try {
+      const payload = {
+        project_id: projectId,
+        test_id: activeTest.id,
+        status: overallStatus,
+        latency: calculatedLatency,
+      };
+
+      console.log("Saving test run to Supabase:", payload);
+
       const { data, error } = await supabase
         .from("test_runs")
-        .insert([
-          {
-            project_id: params.id,
-            test_id: activeTest.id,
-            status: overallStatus,
-            latency: calculatedLatency,
-          },
-        ])
+        .insert([payload])
         .select();
 
       if (error) {
@@ -134,7 +141,7 @@ export default function ProjectWorkspacePage({
             <div>
               <h1 className="text-2xl font-bold text-gray-900">Swaglabs</h1>
               <p className="text-sm text-gray-500 font-mono mt-1">
-                Project ID: {params.id}
+                Project ID: {projectId || "Loading..."}
               </p>
             </div>
             <div className="flex gap-2">
