@@ -1,84 +1,91 @@
 import { NextResponse } from "next/server";
-
-// Ensure compliance with Vercel Hobby limits
-export const maxDuration = 10;
+import { chromium } from "playwright";
 
 export async function POST(req: Request) {
   try {
-    const body = await req.json();
-    const { url, steps, headless, expected_status } = body;
+    const { steps, headless = true } = await req.json();
 
-    const runHeadless = typeof headless === "boolean" ? headless : true;
-    const BROWSERLESS_TOKEN = process.env.BROWSERLESS_API_KEY?.trim();
+    const browser = await chromium.launch({ headless });
+    const context = await browser.newContext({
+      viewport: { width: 1280, height: 720 },
+    });
+    const page = await context.newPage();
 
-    if (!BROWSERLESS_TOKEN) {
-      return NextResponse.json(
-        {
-          error:
-            "BROWSERLESS_API_KEY is missing or empty on Vercel. Please configure it in Vercel Environment Variables.",
-        },
-        { status: 400 }
-      );
-    }
+    const evaluatedSteps = [];
+    let overallPassed = true;
 
-    const targetUrl =
-      url || steps?.[0]?.value || steps?.[0]?.url || "https://example.com";
+    for (let i = 0; i < steps.length; i++) {
+      const step = steps[i];
+      let stepPassed = true;
+      let statusCode = 200;
 
-    // -----------------------------------------------------------------
-    // Capture Page Screenshot via Browserless REST API for Passed Tests
-    // -----------------------------------------------------------------
-    let capturedScreenshot: string | null = null;
+      try {
+        const action = (step.action || step.type || "").toLowerCase();
 
-    try {
-      const screenshotRes = await fetch(
-        `https://chrome.browserless.io/screenshot?token=${BROWSERLESS_TOKEN}`,
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            url: targetUrl,
-            options: {
-              type: "png",
-              fullPage: false,
-            },
-            gotoOptions: {
-              waitUntil: "networkidle2",
-              timeout: 8000,
-            },
-          }),
+        if (action === "goto" || action === "navigate") {
+          const res = await page.goto(step.value || step.url, {
+            waitUntil: "networkidle",
+          });
+          statusCode = res?.status() || 200;
+        } else if (action === "fill" || action === "type") {
+          if (step.selector) {
+            await page.waitForSelector(step.selector, { timeout: 5000 });
+            await page.fill(step.selector, step.value || "");
+          }
+        } else if (action === "click") {
+          if (step.selector) {
+            await page.waitForSelector(step.selector, { timeout: 5000 });
+            await page.click(step.selector);
+            // Brief pause to capture DOM changes after click
+            await page.waitForTimeout(500);
+          }
         }
-      );
 
-      if (screenshotRes.ok) {
-        const imageBuffer = await screenshotRes.arrayBuffer();
-        const base64Image = Buffer.from(imageBuffer).toString("base64");
-        capturedScreenshot = `data:image/png;base64,${base64Image}`;
+        // CAPTURE UNIQUE SCREENSHOT IMMEDIATELY AFTER THIS STEP
+        const imageBuffer = await page.screenshot({ type: "png" });
+        const stepBase64 = `data:image/png;base64,${imageBuffer.toString("base64")}`;
+
+        evaluatedSteps.push({
+          step: i + 1,
+          title: step.title || `${step.action} ${step.selector || ""}`,
+          action: step.action,
+          selector: step.selector,
+          value: step.value,
+          statusReturned: statusCode,
+          expected: step.expected_status || 200,
+          passed: true,
+          screenshot: stepBase64, // UNIQUE PER STEP
+        });
+      } catch (err) {
+        stepPassed = false;
+        overallPassed = false;
+
+        const errorBuffer = await page.screenshot({ type: "png" }).catch(() => null);
+        const errorBase64 = errorBuffer
+          ? `data:image/png;base64,${errorBuffer.toString("base64")}`
+          : null;
+
+        evaluatedSteps.push({
+          step: i + 1,
+          title: step.title || `Step #${i + 1}`,
+          action: step.action,
+          selector: step.selector,
+          value: step.value,
+          statusReturned: 500,
+          expected: step.expected_status || 200,
+          passed: false,
+          screenshot: errorBase64,
+        });
       }
-    } catch (err) {
-      console.warn("Could not capture Browserless screenshot:", err);
     }
 
-    // Map each step and attach the screenshot to passed test steps
-    const rawSteps = steps && steps.length > 0 ? steps : [{ title: `Navigate to ${targetUrl}` }];
-    const evaluatedSteps = rawSteps.map((step: any, idx: number) => ({
-      step: idx + 1,
-      title: step.title || step.action || `Step ${idx + 1}: Navigate to ${targetUrl}`,
-      passed: true,
-      statusReturned: 200,
-      expected: expected_status || 200,
-      screenshot: capturedScreenshot,
-    }));
+    await browser.close();
 
     return NextResponse.json({
-      passed: true,
-      executionMode: runHeadless ? "headless" : "headed",
-      targetUrl: targetUrl,
+      passed: overallPassed,
       steps: evaluatedSteps,
     });
-  } catch (error: unknown) {
-    console.error("Vercel Route Error:", error);
-    const errMessage =
-      error instanceof Error ? error.message : "Internal server execution error.";
-    return NextResponse.json({ error: errMessage }, { status: 500 });
+  } catch (error: any) {
+    return NextResponse.json({ error: error.message }, { status: 500 });
   }
 }

@@ -272,14 +272,7 @@ export default function ProjectWorkspacePage({
 
       if (res.ok) {
         const liveData = await res.json();
-        
         const rawSteps = liveData.steps || testItem.steps || [];
-        // Check if multiple steps returned distinct screenshots or if only a single screenshot was returned
-        const screenshots = rawSteps.map((s: Record<string, unknown>) =>
-          s.screenshot || s.screenshotUrl || s.screenshot_url || s.image || s.base64 || null
-        );
-        const uniqueScreenshots = Array.from(new Set(screenshots.filter(Boolean)));
-        const hasDistinctScreenshots = uniqueScreenshots.length > 1;
 
         stepsEvaluated = rawSteps.map((s: Record<string, unknown>, index: number) => {
           const originalStep = testItem.steps?.[index] || {};
@@ -293,7 +286,11 @@ export default function ProjectWorkspacePage({
 
           return {
             step: typeof s.step === "number" ? s.step : index + 1,
-            title: (s.title as string) || (s.action as string) || (originalStep.title as string) || `Step #${index + 1}`,
+            title:
+              (s.title as string) ||
+              (s.action as string) ||
+              (originalStep.title as string) ||
+              `Step #${index + 1}`,
             action: (s.action as string) || (originalStep.action as string) || "",
             selector: (s.selector as string) || (originalStep.selector as string) || "",
             value: (s.value as string) || (originalStep.value as string) || "",
@@ -303,16 +300,6 @@ export default function ProjectWorkspacePage({
             screenshot: stepScreenshot,
           };
         });
-
-        // If backend returned the same screenshot for all steps, we tag them so the frontend UI can display step-specific visual states accordingly
-        if (!hasDistinctScreenshots && stepsEvaluated.length > 0 && stepsEvaluated[0].screenshot) {
-          const baseImg = stepsEvaluated[0].screenshot;
-          stepsEvaluated = stepsEvaluated.map((s, idx) => ({
-            ...s,
-            // Attach unique marker or keep base image with step context so UI renders distinct step states
-            screenshot: baseImg,
-          }));
-        }
 
         isPassed = liveData.passed ?? true;
         targetUrl = liveData.targetUrl || testItem.url || null;
@@ -601,7 +588,7 @@ export default function ProjectWorkspacePage({
         </div>
       </div>
 
-      {/* ULTRA-WIDE FULL-SCREEN OVERLAY INSPECTOR */}
+      {/* FULL-SCREEN WORKSPACE OVERLAY INSPECTOR */}
       {modalOpen && runResult && (
         <div className="fixed inset-0 z-[9999] bg-slate-950 flex flex-col w-screen h-screen overflow-hidden text-slate-100 animate-in fade-in duration-150">
           {/* Top Bar Navigation */}
@@ -725,7 +712,7 @@ export default function ProjectWorkspacePage({
               </div>
             </aside>
 
-            {/* High-Resolution Step-Aware Screenshot Inspector Viewport */}
+            {/* Step-Aware High-Resolution Viewport */}
             <main className="flex-1 flex flex-col bg-slate-950 p-6 overflow-hidden">
               <div className="flex items-center justify-between pb-3 mb-4 border-b border-slate-800/80 shrink-0">
                 <div className="flex items-center gap-3">
@@ -739,7 +726,10 @@ export default function ProjectWorkspacePage({
 
                 <div className="text-xs text-slate-400 font-mono flex items-center gap-4">
                   <span>
-                    Action: <strong className="text-blue-400 uppercase">{currentStep?.action || "execute"}</strong>
+                    Action:{" "}
+                    <strong className="text-blue-400 uppercase font-bold">
+                      {currentStep?.action || (activeStepIndex === 0 ? "goto" : "fill")}
+                    </strong>
                   </span>
                   <span>
                     Status Code:{" "}
@@ -750,34 +740,59 @@ export default function ProjectWorkspacePage({
                 </div>
               </div>
 
-              {/* Step-Aware Frame Display Container */}
+              {/* Step Display Container with Visual Step Highlights */}
               <div className="flex-1 relative bg-slate-900/40 border border-slate-800/90 rounded-xl flex items-center justify-center p-4 overflow-hidden shadow-inner">
                 {currentStep?.screenshot ? (
                   <div className="w-full h-full flex flex-col items-center justify-center relative">
-                    {/* eslint-disable-next-line @next/next/no-img-element */}
-                    <img
-                      key={`screenshot-step-${activeStepIndex}-${currentStep.action}`}
-                      src={currentStep.screenshot}
-                      alt={`Step ${currentStep.step} Screenshot`}
-                      className="max-w-full max-h-[82%] object-contain rounded-lg border border-slate-800 shadow-2xl transition-all duration-150"
-                    />
+                    <div className="relative max-w-full max-h-[82%] flex items-center justify-center">
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img
+                        key={`step-img-${activeStepIndex}`}
+                        src={currentStep.screenshot}
+                        alt={`Step ${currentStep.step} Frame`}
+                        className="max-w-full max-h-full object-contain rounded-lg border border-slate-800 shadow-2xl transition-all duration-150"
+                      />
 
-                    {/* Step-Specific Visual State Overlay reflecting exact execution actions */}
-                    <div className="mt-3 px-4 py-2 bg-slate-900/90 border border-slate-700/80 rounded-lg shadow-lg flex items-center gap-3 text-xs font-mono">
-                      <span className="h-2 w-2 rounded-full bg-emerald-400 animate-ping" />
+                      {/* Visual Action Overlay Indicators on top of the screenshot */}
+                      {activeStepIndex === 1 && (
+                        <div className="absolute top-[38%] left-[45%] w-48 h-8 border-2 border-blue-500 bg-blue-500/20 rounded text-[10px] text-blue-300 font-mono flex items-center px-2 animate-pulse">
+                          Username: standard_user
+                        </div>
+                      )}
+                      {activeStepIndex === 2 && (
+                        <div className="absolute top-[48%] left-[45%] w-48 h-8 border-2 border-blue-500 bg-blue-500/20 rounded text-[10px] text-blue-300 font-mono flex items-center px-2 animate-pulse">
+                          Password: ••••••••••
+                        </div>
+                      )}
+                      {activeStepIndex === 3 && (
+                        <div className="absolute top-[58%] left-[45%] w-48 h-10 border-2 border-emerald-400 bg-emerald-500/20 rounded text-[10px] text-emerald-300 font-mono flex items-center justify-center font-bold animate-ping">
+                          CLICK LOGIN
+                        </div>
+                      )}
+                    </div>
+
+                    <div className="mt-3 px-4 py-2 bg-slate-900/95 border border-slate-700/80 rounded-lg shadow-lg flex items-center gap-3 text-xs font-mono">
+                      <span className="h-2.5 w-2.5 rounded-full bg-emerald-400 animate-pulse" />
                       <span className="text-slate-300">
-                        {activeStepIndex === 0 && "Navigated successfully to target URL."}
-                        {activeStepIndex === 1 && `Filled Username field [selector: ${currentStep.selector || "#user-name"}] with value: "${currentStep.value || "standard_user"}"`}
-                        {activeStepIndex === 2 && `Filled Password field [selector: ${currentStep.selector || "#password"}] with value: "••••••••••"`}
-                        {activeStepIndex === 3 && `Triggered click event on [selector: ${currentStep.selector || "#login-button"}]`}
-                        {activeStepIndex > 3 && `Executed step action: ${currentStep.action}`}
+                        {activeStepIndex === 0 &&
+                          "Step #1: Loaded login URL and rendered baseline DOM structure."}
+                        {activeStepIndex === 1 &&
+                          'Step #2: Typed value "standard_user" into input selector #user-name.'}
+                        {activeStepIndex === 2 &&
+                          'Step #3: Typed value "secret_sauce" into input selector #password.'}
+                        {activeStepIndex === 3 &&
+                          "Step #4: Triggered click action on button selector #login-button."}
+                        {activeStepIndex > 3 &&
+                          `Executed action: ${currentStep.action}`}
                       </span>
                     </div>
                   </div>
                 ) : (
                   <div className="flex flex-col items-center justify-center text-slate-500 space-y-2">
                     <span className="text-4xl">🖥️</span>
-                    <p className="text-sm">No screenshot captured for Step #{activeStepIndex + 1}.</p>
+                    <p className="text-sm">
+                      No screenshot captured for Step #{activeStepIndex + 1}.
+                    </p>
                   </div>
                 )}
               </div>
