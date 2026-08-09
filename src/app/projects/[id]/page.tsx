@@ -23,8 +23,8 @@ export interface StepDefinition {
   value?: string;
   url?: string;
   method?: string;
-  headers?: unknown;
-  body?: unknown;
+  headers?: Record<string, string>;
+  body?: Record<string, unknown>;
   expected_status?: number;
 }
 
@@ -52,6 +52,7 @@ interface TestItem {
   method?: string;
   url?: string;
   steps?: StepDefinition[];
+  expected_status?: number;
 }
 
 interface ProjectMetrics {
@@ -68,6 +69,7 @@ export default function ProjectWorkspacePage({
 }) {
   const supabase = createClient();
 
+  // Handle both React 19 async params and synchronous params
   const resolvedParams = params instanceof Promise ? React.use(params) : params;
   const projectId = resolvedParams?.id;
 
@@ -76,13 +78,22 @@ export default function ProjectWorkspacePage({
   const [modalOpen, setModalOpen] = useState(false);
   const [runResult, setRunResult] = useState<TestRunResult | null>(null);
 
-  // Execution Mode State (Headless by default)
+  // Execution Mode State
   const [isHeaded, setIsHeaded] = useState(false);
 
-  // Active tests list state hydrated from Supabase
+  // Check if app is deployed on Vercel
+  const [isDeployed, setIsDeployed] = useState(false);
+
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      setIsDeployed(window.location.hostname.includes("vercel.app"));
+    }
+  }, []);
+
+  // Workspace Test Cases
   const [tests, setTests] = useState<TestItem[]>([]);
 
-  // Project-specific metrics state
+  // Project Metrics
   const [metrics, setMetrics] = useState<ProjectMetrics>({
     passRate: 0,
     avgLatency: 0,
@@ -90,7 +101,7 @@ export default function ProjectWorkspacePage({
     failedExecutions: 0,
   });
 
-  // Fetch project-specific execution metrics from Supabase
+  // Calculate isolated project health metrics
   const loadProjectMetrics = useCallback(async () => {
     if (!projectId) return;
 
@@ -100,7 +111,7 @@ export default function ProjectWorkspacePage({
       .eq("project_id", projectId);
 
     if (error) {
-      console.error("Error loading project test runs:", error.message);
+      console.error("Error loading project metrics:", error.message);
       return;
     }
 
@@ -138,13 +149,12 @@ export default function ProjectWorkspacePage({
     }
   }, [projectId, supabase]);
 
-  // Fetch test cases and metrics on load
+  // Load test cases and metrics
   useEffect(() => {
     async function loadWorkspaceData() {
       if (!projectId) return;
       setFetchingTests(true);
 
-      // 1. Fetch Tests
       const { data, error } = await supabase
         .from("test_cases")
         .select("*")
@@ -160,41 +170,43 @@ export default function ProjectWorkspacePage({
           method: t.method || (t.type === "api" ? "GET" : "BROWSER"),
           url: t.url || (t.steps?.[0]?.url ?? ""),
           steps: t.steps || [],
+          expected_status: t.expected_status || 200,
         }));
         setTests(mappedData);
       } else {
-        // Fallback default sample test if none exist
+        // Default test if empty
         setTests([
           {
             id: "test-login-123",
-            name: "Login Page",
-            method: "GET",
+            name: "Login Page Test",
+            type: "browser",
+            method: "BROWSER",
             url: "https://www.saucedemo.com/",
             steps: [
               {
                 id: "step-1",
                 action: "navigate",
-                title: "Open Home Page",
+                title: "Open Login Page",
                 value: "https://www.saucedemo.com/",
               },
               {
                 id: "step-2",
                 action: "fill",
-                title: "Input User-name",
+                title: "Enter Username",
                 selector: "#user-name",
                 value: "standard_user",
               },
               {
                 id: "step-3",
                 action: "fill",
-                title: "Input Password",
+                title: "Enter Password",
                 selector: "#password",
                 value: "secret_sauce",
               },
               {
                 id: "step-4",
                 action: "click",
-                title: "Click Login",
+                title: "Click Submit",
                 selector: "#login-button",
               },
             ],
@@ -202,21 +214,19 @@ export default function ProjectWorkspacePage({
         ]);
       }
 
-      // 2. Fetch Project-Specific Metrics
       await loadProjectMetrics();
-
       setFetchingTests(false);
     }
 
     loadWorkspaceData();
   }, [projectId, supabase, loadProjectMetrics]);
 
-  // Reset Executions Handler
+  // Reset Executions
   const handleResetExecutions = async () => {
     if (!projectId) return;
     if (
       !window.confirm(
-        "Are you sure you want to reset all test execution history for this project?"
+        "Are you sure you want to clear all test execution history for this project?"
       )
     ) {
       return;
@@ -237,20 +247,21 @@ export default function ProjectWorkspacePage({
         totalExecutions: 0,
         failedExecutions: 0,
       });
-      alert("Test execution history successfully reset!");
+      alert("Execution history cleared successfully.");
     }
   };
 
-  // Run single test function
+  // Run single test item
   const handleRunTest = async (testItem: TestItem) => {
     if (!projectId) {
-      alert("Error: No Project ID found in URL route.");
+      alert("Project ID is missing.");
       return;
     }
 
     setLoading(true);
     const startTime = performance.now();
-    const mode: "headed" | "headless" = isHeaded ? "headed" : "headless";
+    const effectiveHeaded = isDeployed ? false : isHeaded;
+    const mode: "headed" | "headless" = effectiveHeaded ? "headed" : "headless";
 
     let stepsEvaluated: TestStepResult[] = [];
     let isPassed = true;
@@ -262,10 +273,12 @@ export default function ProjectWorkspacePage({
         body: JSON.stringify({
           projectId: projectId,
           testId: testItem.id,
+          type: testItem.type,
           method: testItem.method,
           url: testItem.url,
           steps: testItem.steps || [],
-          headless: !isHeaded,
+          expected_status: testItem.expected_status || 200,
+          headless: !effectiveHeaded,
         }),
       });
 
@@ -274,12 +287,12 @@ export default function ProjectWorkspacePage({
         stepsEvaluated = liveData.steps || [];
         isPassed = liveData.passed ?? true;
       } else {
-        let errorMessage = "Bad Request. Check server logs.";
+        let errorMessage = "Server processing error.";
         try {
           const errorData = await res.json();
           errorMessage = errorData.error || errorMessage;
         } catch {
-          errorMessage = `HTTP ${res.status}: Endpoint returned non-JSON response.`;
+          errorMessage = `HTTP ${res.status}: Non-JSON response received.`;
         }
 
         alert(`Execution failed: ${errorMessage}`);
@@ -287,8 +300,8 @@ export default function ProjectWorkspacePage({
         return;
       }
     } catch (err) {
-      console.error("Network or script error running live test:", err);
-      alert("Failed to connect to automation server.");
+      console.error("Network or script error:", err);
+      alert("Failed to reach automation backend.");
       setLoading(false);
       return;
     }
@@ -306,26 +319,25 @@ export default function ProjectWorkspacePage({
       steps: stepsEvaluated,
     });
 
-    // Save test execution results to Supabase (populating both duration_ms and latency)
+    // Save test execution entry to Supabase
     try {
       const payload = {
         project_id: projectId,
         test_id: testItem.id,
         status: overallStatus,
-        duration_ms: calculatedLatency, // Matches Supabase schema
+        duration_ms: calculatedLatency,
         latency: calculatedLatency,
       };
 
       const { error } = await supabase.from("test_runs").insert([payload]);
 
       if (error) {
-        console.error("Supabase insert error:", error.message);
+        console.error("Failed to insert run log into Supabase:", error.message);
       } else {
-        // Refresh metrics dynamically after insert
         await loadProjectMetrics();
       }
     } catch (err) {
-      console.error("Failed to execute save request:", err);
+      console.error("Save run log error:", err);
     } finally {
       setLoading(false);
       setModalOpen(true);
@@ -347,7 +359,7 @@ export default function ProjectWorkspacePage({
         .eq("id", testId);
 
       if (error) {
-        console.error("Failed to delete test from database:", error.message);
+        console.error("Failed to delete test:", error.message);
       }
       setTests((prev) => prev.filter((t) => t.id !== testId));
     }
@@ -356,7 +368,7 @@ export default function ProjectWorkspacePage({
   return (
     <div className="min-h-screen bg-gray-50 p-8">
       <div className="max-w-5xl mx-auto space-y-6">
-        {/* Workspace Header & Action Controls */}
+        {/* Workspace Top Navigation & Actions */}
         <Card>
           <CardContent className="p-6 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
             <div>
@@ -377,12 +389,13 @@ export default function ProjectWorkspacePage({
             </div>
 
             <div className="flex flex-wrap items-center gap-3">
+              {/* Mode Toggle */}
               <div className="flex items-center bg-gray-100 p-1 rounded-lg border border-gray-200">
                 <button
                   type="button"
                   onClick={() => setIsHeaded(false)}
                   className={`px-3 py-1.5 text-xs font-semibold rounded-md transition-all cursor-pointer ${
-                    !isHeaded
+                    !isHeaded || isDeployed
                       ? "bg-white text-gray-900 shadow-sm"
                       : "text-gray-500 hover:text-gray-900"
                   }`}
@@ -391,14 +404,22 @@ export default function ProjectWorkspacePage({
                 </button>
                 <button
                   type="button"
-                  onClick={() => setIsHeaded(true)}
-                  className={`px-3 py-1.5 text-xs font-semibold rounded-md transition-all cursor-pointer ${
-                    isHeaded
-                      ? "bg-white text-gray-900 shadow-sm"
-                      : "text-gray-500 hover:text-gray-900"
+                  disabled={isDeployed}
+                  onClick={() => !isDeployed && setIsHeaded(true)}
+                  title={
+                    isDeployed
+                      ? "Headed UI mode is only available on localhost"
+                      : "Launch browser GUI while running tests"
+                  }
+                  className={`px-3 py-1.5 text-xs font-semibold rounded-md transition-all ${
+                    isDeployed
+                      ? "opacity-50 cursor-not-allowed text-gray-400"
+                      : isHeaded
+                      ? "bg-white text-gray-900 shadow-sm cursor-pointer"
+                      : "text-gray-500 hover:text-gray-900 cursor-pointer"
                   }`}
                 >
-                  🖥️ Headed (Live UI)
+                  🖥️ Headed (Live UI) {isDeployed && "(Localhost only)"}
                 </button>
               </div>
 
@@ -422,7 +443,7 @@ export default function ProjectWorkspacePage({
           </CardContent>
         </Card>
 
-        {/* Project-Specific Metrics Summary Cards */}
+        {/* Project Metrics Summary Bar */}
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
           <Card>
             <CardContent className="p-4">
@@ -461,7 +482,9 @@ export default function ProjectWorkspacePage({
               </p>
               <h3
                 className={`text-2xl font-bold mt-1 ${
-                  metrics.failedExecutions > 0 ? "text-red-600" : "text-gray-900"
+                  metrics.failedExecutions > 0
+                    ? "text-red-600"
+                    : "text-gray-900"
                 }`}
               >
                 {metrics.failedExecutions}
@@ -470,7 +493,7 @@ export default function ProjectWorkspacePage({
           </Card>
         </div>
 
-        {/* Tests List */}
+        {/* Test List Section */}
         <div>
           <div className="flex items-center justify-between mb-4">
             <h2 className="text-lg font-semibold text-gray-800">
@@ -487,13 +510,13 @@ export default function ProjectWorkspacePage({
           {fetchingTests ? (
             <Card>
               <CardContent className="p-8 text-center text-gray-500 text-sm">
-                Loading test cases...
+                Loading test suite...
               </CardContent>
             </Card>
           ) : tests.length === 0 ? (
             <Card>
               <CardContent className="p-8 text-center text-gray-500">
-                No tests found for this project.
+                No test cases found in this project.
               </CardContent>
             </Card>
           ) : (
@@ -511,7 +534,9 @@ export default function ProjectWorkspacePage({
                       <div>
                         <p className="font-medium text-gray-900">{test.name}</p>
                         <p className="text-xs text-gray-500">
-                          {test.url ? test.url : `${test.steps?.length || 0} step(s)`}
+                          {test.url
+                            ? test.url
+                            : `${test.steps?.length || 0} step(s)`}
                         </p>
                       </div>
                     </div>
@@ -523,7 +548,7 @@ export default function ProjectWorkspacePage({
                         disabled={loading}
                         className="bg-gray-900 hover:bg-black text-white cursor-pointer"
                       >
-                        ▶ {loading ? "Running..." : `Run (${isHeaded ? "Headed Live" : "Headless"})`}
+                        ▶ {loading ? "Running..." : "Run Test"}
                       </Button>
 
                       <Link
@@ -550,7 +575,7 @@ export default function ProjectWorkspacePage({
         </div>
       </div>
 
-      {/* Execution Results Modal */}
+      {/* Execution Results Dialog */}
       {runResult && (
         <Dialog open={modalOpen} onOpenChange={setModalOpen}>
           <DialogContent className="max-w-xl p-6 bg-white rounded-xl">
