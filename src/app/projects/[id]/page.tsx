@@ -1,15 +1,19 @@
 "use client";
 
 import React, { useState } from "react";
+import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import {
   Dialog,
   DialogContent,
   DialogHeader,
   DialogTitle,
+  DialogFooter,
 } from "@/components/ui/dialog";
 
 interface TestStep {
@@ -28,11 +32,19 @@ interface TestRunResult {
   steps: TestStep[];
 }
 
+interface TestItem {
+  id: string;
+  name: string;
+  method: string;
+  url: string;
+}
+
 export default function ProjectWorkspacePage({
   params,
 }: {
   params: Promise<{ id: string }> | { id: string };
 }) {
+  const router = useRouter();
   const supabase = createClient();
 
   // Safely unwrap params across Next.js versions
@@ -43,14 +55,22 @@ export default function ProjectWorkspacePage({
   const [modalOpen, setModalOpen] = useState(false);
   const [runResult, setRunResult] = useState<TestRunResult | null>(null);
 
-  const activeTest = {
-    id: "test-login-123",
-    name: "Login Page",
-    method: "GET",
-    url: "https://www.saucedemo.com/",
-  };
+  // Edit Modal State
+  const [editModalOpen, setEditModalOpen] = useState(false);
+  const [editingTest, setEditingTest] = useState<TestItem | null>(null);
 
-  const handleRunTest = async () => {
+  // Active tests list state
+  const [tests, setTests] = useState<TestItem[]>([
+    {
+      id: "test-login-123",
+      name: "Login Page",
+      method: "GET",
+      url: "https://www.saucedemo.com/",
+    },
+  ]);
+
+  // Run Test Function
+  const handleRunTest = async (testItem: TestItem) => {
     if (!projectId) {
       alert("Error: No Project ID found in URL route.");
       return;
@@ -94,11 +114,11 @@ export default function ProjectWorkspacePage({
     const calculatedLatency = Math.round(endTime - startTime) + 550;
     const isPassed = mockSteps.every((s) => s.passed);
 
-    // Set status to lowercase to pass Supabase check constraint ('passed' / 'failed')
+    // Lowercase string status to satisfy Supabase check constraints
     const overallStatus: "passed" | "failed" = isPassed ? "passed" : "failed";
 
     setRunResult({
-      testName: activeTest.name,
+      testName: testItem.name,
       overallStatus,
       totalLatency: calculatedLatency,
       stepsEvaluated: mockSteps.length,
@@ -108,8 +128,8 @@ export default function ProjectWorkspacePage({
     try {
       const payload = {
         project_id: projectId,
-        test_id: activeTest.id,
-        status: overallStatus, // now sends "passed" or "failed"
+        test_id: testItem.id,
+        status: overallStatus,
         latency: calculatedLatency,
       };
 
@@ -134,6 +154,31 @@ export default function ProjectWorkspacePage({
     }
   };
 
+  // 1. EDIT BUTTON HANDLERS
+  const handleOpenEditModal = (testItem: TestItem) => {
+    setEditingTest({ ...testItem });
+    setEditModalOpen(true);
+  };
+
+  const handleSaveEdit = () => {
+    if (!editingTest) return;
+
+    setTests((prev) =>
+      prev.map((t) => (t.id === editingTest.id ? editingTest : t))
+    );
+    setEditModalOpen(false);
+  };
+
+  // 2. DELETE BUTTON HANDLER
+  const handleDeleteTest = (testId: string) => {
+    const isConfirmed = window.confirm(
+      "Are you sure you want to delete this test?"
+    );
+    if (isConfirmed) {
+      setTests((prev) => prev.filter((t) => t.id !== testId));
+    }
+  };
+
   return (
     <div className="min-h-screen bg-gray-50 p-8">
       <div className="max-w-5xl mx-auto space-y-6">
@@ -147,7 +192,10 @@ export default function ProjectWorkspacePage({
               </p>
             </div>
             <div className="flex gap-2">
-              <Button onClick={handleRunTest} disabled={loading}>
+              <Button
+                onClick={() => tests[0] && handleRunTest(tests[0])}
+                disabled={loading || tests.length === 0}
+              >
                 ⚡ {loading ? "Running..." : "Run All Tests"}
               </Button>
             </div>
@@ -157,43 +205,126 @@ export default function ProjectWorkspacePage({
         {/* API & Web Tests List */}
         <div>
           <h2 className="text-lg font-semibold text-gray-800 mb-4">
-            API & Web Tests (1)
+            API & Web Tests ({tests.length})
           </h2>
 
-          <Card>
-            <CardContent className="p-4 flex items-center justify-between">
-              <div className="flex items-center gap-3">
-                <Badge variant="outline" className="font-semibold text-blue-600">
-                  {activeTest.method}
-                </Badge>
-                <div>
-                  <p className="font-medium text-gray-900">{activeTest.name}</p>
-                  <p className="text-xs text-gray-500">{activeTest.url}</p>
-                </div>
-              </div>
+          {tests.length === 0 ? (
+            <Card>
+              <CardContent className="p-8 text-center text-gray-500">
+                No tests found for this project.
+              </CardContent>
+            </Card>
+          ) : (
+            <div className="space-y-3">
+              {tests.map((test) => (
+                <Card key={test.id}>
+                  <CardContent className="p-4 flex items-center justify-between">
+                    <div className="flex items-center gap-3">
+                      <Badge
+                        variant="outline"
+                        className="font-semibold text-blue-600"
+                      >
+                        {test.method}
+                      </Badge>
+                      <div>
+                        <p className="font-medium text-gray-900">{test.name}</p>
+                        <p className="text-xs text-gray-500">{test.url}</p>
+                      </div>
+                    </div>
 
-              <div className="flex items-center gap-2">
-                <Button
-                  size="sm"
-                  onClick={handleRunTest}
-                  disabled={loading}
-                  className="bg-gray-900 hover:bg-black text-white"
-                >
-                  ▶ {loading ? "Running..." : "Run Test"}
-                </Button>
-                <Button size="sm" variant="outline">
-                  Edit
-                </Button>
-                <Button size="sm" variant="ghost" className="text-red-600">
-                  Delete
-                </Button>
-              </div>
-            </CardContent>
-          </Card>
+                    <div className="flex items-center gap-2">
+                      <Button
+                        size="sm"
+                        onClick={() => handleRunTest(test)}
+                        disabled={loading}
+                        className="bg-gray-900 hover:bg-black text-white cursor-pointer"
+                      >
+                        ▶ {loading ? "Running..." : "Run Test"}
+                      </Button>
+
+                      {/* EDIT BUTTON */}
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => handleOpenEditModal(test)}
+                        className="cursor-pointer hover:bg-gray-100"
+                      >
+                        Edit
+                      </Button>
+
+                      {/* DELETE BUTTON */}
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        onClick={() => handleDeleteTest(test.id)}
+                        className="text-red-600 hover:text-red-700 hover:bg-red-50 cursor-pointer"
+                      >
+                        Delete
+                      </Button>
+                    </div>
+                  </CardContent>
+                </Card>
+              ))}
+            </div>
+          )}
         </div>
       </div>
 
-      {/* Test Results Modal */}
+      {/* EDIT MODAL */}
+      <Dialog open={editModalOpen} onOpenChange={setEditModalOpen}>
+        <DialogContent className="max-w-md p-6 bg-white rounded-xl">
+          <DialogHeader>
+            <DialogTitle className="text-lg font-bold">Edit Test</DialogTitle>
+          </DialogHeader>
+
+          {editingTest && (
+            <div className="space-y-4 py-2">
+              <div>
+                <Label className="text-xs font-semibold text-gray-600">
+                  Test Name
+                </Label>
+                <Input
+                  value={editingTest.name}
+                  onChange={(e) =>
+                    setEditingTest({ ...editingTest, name: e.target.value })
+                  }
+                  className="mt-1"
+                />
+              </div>
+
+              <div>
+                <Label className="text-xs font-semibold text-gray-600">
+                  URL
+                </Label>
+                <Input
+                  value={editingTest.url}
+                  onChange={(e) =>
+                    setEditingTest({ ...editingTest, url: e.target.value })
+                  }
+                  className="mt-1"
+                />
+              </div>
+            </div>
+          )}
+
+          <DialogFooter className="pt-2 flex justify-end gap-2">
+            <Button
+              variant="outline"
+              onClick={() => setEditModalOpen(false)}
+            >
+              Cancel
+            </Button>
+            <Button
+              onClick={handleSaveEdit}
+              className="bg-black text-white hover:bg-gray-800"
+            >
+              Save Changes
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* TEST RESULTS MODAL */}
       {runResult && (
         <Dialog open={modalOpen} onOpenChange={setModalOpen}>
           <DialogContent className="max-w-xl p-6 bg-white rounded-xl">
@@ -248,7 +379,7 @@ export default function ProjectWorkspacePage({
             <div className="flex justify-end pt-2 border-t">
               <Button
                 onClick={() => setModalOpen(false)}
-                className="bg-black text-white hover:bg-gray-800"
+                className="bg-black text-white hover:bg-gray-800 cursor-pointer"
               >
                 Close
               </Button>
