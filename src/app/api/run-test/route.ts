@@ -21,18 +21,18 @@ export async function POST(req: Request) {
       );
     }
 
-    const targetUrl = url || steps?.[0]?.value || steps?.[0]?.url || "https://example.com";
+    const targetUrl =
+      url || steps?.[0]?.value || steps?.[0]?.url || "https://example.com";
 
     // -----------------------------------------------------------------
     // 1. HEADED MODE (Live UI Remote Session via Browserless)
     // -----------------------------------------------------------------
     if (!runHeadless) {
-      // Generate live interactive embed URL for the client <iframe>
+      // Direct Browserless Live Debugger URL for standalone window popup
       const liveEmbedUrl = `https://chrome.browserless.io/live?token=${BROWSERLESS_TOKEN}&url=${encodeURIComponent(
         targetUrl
-      )}&viewport=1280x720`;
+      )}`;
 
-      // Build simulated or evaluated step log
       const evaluatedSteps = (steps || []).map((step: any, idx: number) => ({
         step: idx + 1,
         title: step.title || step.action || `Step ${idx + 1}`,
@@ -63,7 +63,6 @@ export async function POST(req: Request) {
     // -----------------------------------------------------------------
     // 2. HEADLESS MODE (Fast REST Execution via Browserless)
     // -----------------------------------------------------------------
-    // Uses Browserless /content endpoint to verify page loading without heavy Playwright bundling
     const response = await fetch(
       `https://chrome.browserless.io/content?token=${BROWSERLESS_TOKEN}`,
       {

@@ -596,37 +596,46 @@ export default function ProjectWorkspacePage({
                 </span>
               </div>
 
-              {/* Headed Interactive Browser Stream View */}
+              {/* Headed Interactive Browser Launch Area */}
               {runResult.executionMode === "headed" && (
-                <div className="border rounded-lg overflow-hidden bg-black shadow-lg">
-                  <div className="bg-gray-800 px-3 py-1.5 flex items-center justify-between text-xs text-gray-300">
-                    <span className="flex items-center gap-1.5">
-                      <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 inline-block animate-ping"></span>
-                      <span className="font-semibold text-white">
-                        Live Interactive Remote View
+                <div className="border rounded-lg p-5 bg-slate-900 text-white shadow-lg space-y-3">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <span className="relative flex h-3 w-3">
+                        <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                        <span className="relative inline-flex rounded-full h-3 w-3 bg-emerald-500"></span>
                       </span>
-                    </span>
-                    <span className="text-[10px] text-gray-400">
-                      Fully clickable session hosted in cloud browser
-                    </span>
+                      <span className="font-semibold text-sm">
+                        Live Interactive Remote Session
+                      </span>
+                    </div>
+                    <Badge variant="outline" className="text-emerald-400 border-emerald-500/40 text-[10px]">
+                      ACTIVE
+                    </Badge>
                   </div>
 
+                  <p className="text-xs text-slate-300">
+                    Click below to open a full, interactive cloud browser session where you can directly click, type, and inspect the target application.
+                  </p>
+
                   {runResult.liveEmbedUrl ? (
-                    <iframe
-                      src={runResult.liveEmbedUrl}
-                      className="w-full h-[450px] border-none"
-                      allow="autoplay; encrypted-media; fullscreen; clipboard-write"
-                    />
-                  ) : activeStepScreenshot ? (
-                    /* eslint-disable-next-line @next/next/no-img-element */
-                    <img
-                      src={activeStepScreenshot}
-                      alt="Live Browser UI View"
-                      className="w-full h-auto max-h-[300px] object-contain bg-gray-950"
-                    />
+                    <div className="pt-2">
+                      <Button
+                        onClick={() =>
+                          window.open(
+                            runResult.liveEmbedUrl!,
+                            "_blank",
+                            "width=1280,height=800,resizable=yes,scrollbars=yes"
+                          )
+                        }
+                        className="w-full bg-emerald-500 hover:bg-emerald-600 text-slate-950 font-bold text-xs py-2.5 rounded-md transition-colors flex items-center justify-center gap-2 cursor-pointer"
+                      >
+                        🖥️ Launch Live Interactive Browser Window ↗
+                      </Button>
+                    </div>
                   ) : (
-                    <div className="p-8 text-center text-xs text-gray-400">
-                      No interactive session URL available. Set BROWSERLESS_API_KEY in Vercel settings.
+                    <div className="p-4 text-center text-xs text-slate-400 bg-slate-950/50 rounded border border-slate-800">
+                      No interactive session URL available. Verify <code>BROWSERLESS_API_KEY</code> on Vercel.
                     </div>
                   )}
                 </div>
