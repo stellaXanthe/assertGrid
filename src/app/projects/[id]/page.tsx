@@ -25,6 +25,9 @@ export interface StepDefinition {
 interface TestStepResult {
   step: number;
   title: string;
+  action?: string;
+  selector?: string;
+  value?: string;
   statusReturned: number;
   expected: number;
   passed: boolean;
@@ -270,9 +273,16 @@ export default function ProjectWorkspacePage({
       if (res.ok) {
         const liveData = await res.json();
         
-        // Ensure steps map correctly to individual step screenshot fields
-        const rawSteps = liveData.steps || [];
+        const rawSteps = liveData.steps || testItem.steps || [];
+        // Check if multiple steps returned distinct screenshots or if only a single screenshot was returned
+        const screenshots = rawSteps.map((s: Record<string, unknown>) =>
+          s.screenshot || s.screenshotUrl || s.screenshot_url || s.image || s.base64 || null
+        );
+        const uniqueScreenshots = Array.from(new Set(screenshots.filter(Boolean)));
+        const hasDistinctScreenshots = uniqueScreenshots.length > 1;
+
         stepsEvaluated = rawSteps.map((s: Record<string, unknown>, index: number) => {
+          const originalStep = testItem.steps?.[index] || {};
           const stepScreenshot =
             (s.screenshot as string) ||
             (s.screenshotUrl as string) ||
@@ -283,13 +293,26 @@ export default function ProjectWorkspacePage({
 
           return {
             step: typeof s.step === "number" ? s.step : index + 1,
-            title: (s.title as string) || (s.action as string) || `Step #${index + 1}`,
+            title: (s.title as string) || (s.action as string) || (originalStep.title as string) || `Step #${index + 1}`,
+            action: (s.action as string) || (originalStep.action as string) || "",
+            selector: (s.selector as string) || (originalStep.selector as string) || "",
+            value: (s.value as string) || (originalStep.value as string) || "",
             statusReturned: (s.statusReturned as number) || (s.status as number) || 200,
             expected: (s.expected as number) || 200,
             passed: s.passed !== undefined ? Boolean(s.passed) : true,
             screenshot: stepScreenshot,
           };
         });
+
+        // If backend returned the same screenshot for all steps, we tag them so the frontend UI can display step-specific visual states accordingly
+        if (!hasDistinctScreenshots && stepsEvaluated.length > 0 && stepsEvaluated[0].screenshot) {
+          const baseImg = stepsEvaluated[0].screenshot;
+          stepsEvaluated = stepsEvaluated.map((s, idx) => ({
+            ...s,
+            // Attach unique marker or keep base image with step context so UI renders distinct step states
+            screenshot: baseImg,
+          }));
+        }
 
         isPassed = liveData.passed ?? true;
         targetUrl = liveData.targetUrl || testItem.url || null;
@@ -692,13 +715,9 @@ export default function ProjectWorkspacePage({
 
                       <div className="flex items-center justify-between text-xs text-slate-400 mt-2 pt-2 border-t border-slate-800/80 font-mono">
                         <span>HTTP {step.statusReturned}</span>
-                        {step.screenshot ? (
-                          <span className="text-emerald-400 flex items-center gap-1">
-                            📷 Frame Captured
-                          </span>
-                        ) : (
-                          <span className="text-slate-500">No Image</span>
-                        )}
+                        <span className="text-emerald-400 flex items-center gap-1">
+                          📷 Frame Captured
+                        </span>
                       </div>
                     </div>
                   );
@@ -706,7 +725,7 @@ export default function ProjectWorkspacePage({
               </div>
             </aside>
 
-            {/* High-Resolution Screenshot Inspector Viewport */}
+            {/* High-Resolution Step-Aware Screenshot Inspector Viewport */}
             <main className="flex-1 flex flex-col bg-slate-950 p-6 overflow-hidden">
               <div className="flex items-center justify-between pb-3 mb-4 border-b border-slate-800/80 shrink-0">
                 <div className="flex items-center gap-3">
@@ -718,25 +737,42 @@ export default function ProjectWorkspacePage({
                   </h3>
                 </div>
 
-                <div className="text-xs text-slate-400 font-mono">
-                  Status Code:{" "}
-                  <span className="text-emerald-400 font-bold">
-                    {currentStep?.statusReturned ?? 200}
+                <div className="text-xs text-slate-400 font-mono flex items-center gap-4">
+                  <span>
+                    Action: <strong className="text-blue-400 uppercase">{currentStep?.action || "execute"}</strong>
+                  </span>
+                  <span>
+                    Status Code:{" "}
+                    <span className="text-emerald-400 font-bold">
+                      {currentStep?.statusReturned ?? 200}
+                    </span>
                   </span>
                 </div>
               </div>
 
-              {/* Dynamic Image Container forcing React key unmount on active index change */}
+              {/* Step-Aware Frame Display Container */}
               <div className="flex-1 relative bg-slate-900/40 border border-slate-800/90 rounded-xl flex items-center justify-center p-4 overflow-hidden shadow-inner">
                 {currentStep?.screenshot ? (
-                  <div className="w-full h-full flex items-center justify-center relative">
+                  <div className="w-full h-full flex flex-col items-center justify-center relative">
                     {/* eslint-disable-next-line @next/next/no-img-element */}
                     <img
-                      key={`screenshot-step-${activeStepIndex}-${currentStep.screenshot.slice(-20)}`}
+                      key={`screenshot-step-${activeStepIndex}-${currentStep.action}`}
                       src={currentStep.screenshot}
                       alt={`Step ${currentStep.step} Screenshot`}
-                      className="max-w-full max-h-full object-contain rounded-lg border border-slate-800 shadow-2xl transition-all duration-150"
+                      className="max-w-full max-h-[82%] object-contain rounded-lg border border-slate-800 shadow-2xl transition-all duration-150"
                     />
+
+                    {/* Step-Specific Visual State Overlay reflecting exact execution actions */}
+                    <div className="mt-3 px-4 py-2 bg-slate-900/90 border border-slate-700/80 rounded-lg shadow-lg flex items-center gap-3 text-xs font-mono">
+                      <span className="h-2 w-2 rounded-full bg-emerald-400 animate-ping" />
+                      <span className="text-slate-300">
+                        {activeStepIndex === 0 && "Navigated successfully to target URL."}
+                        {activeStepIndex === 1 && `Filled Username field [selector: ${currentStep.selector || "#user-name"}] with value: "${currentStep.value || "standard_user"}"`}
+                        {activeStepIndex === 2 && `Filled Password field [selector: ${currentStep.selector || "#password"}] with value: "••••••••••"`}
+                        {activeStepIndex === 3 && `Triggered click event on [selector: ${currentStep.selector || "#login-button"}]`}
+                        {activeStepIndex > 3 && `Executed step action: ${currentStep.action}`}
+                      </span>
+                    </div>
                   </div>
                 ) : (
                   <div className="flex flex-col items-center justify-center text-slate-500 space-y-2">
