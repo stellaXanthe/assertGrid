@@ -3,106 +3,167 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 
 export default function LoginPage() {
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
-  const [isSignUp, setIsSignUp] = useState(false);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
   const router = useRouter();
   const supabase = createClient();
+
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [mode, setMode] = useState<"login" | "signup" | "forgot">("login");
+  const [loading, setLoading] = useState(false);
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const [successMsg, setSuccessMsg] = useState<string | null>(null);
 
   const handleAuth = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
-    setError(null);
+    setErrorMsg(null);
+    setSuccessMsg(null);
 
     try {
-      if (isSignUp) {
-        const { error: signUpError } = await supabase.auth.signUp({
+      if (mode === "login") {
+        const { error } = await supabase.auth.signInWithPassword({
           email,
           password,
         });
-        if (signUpError) throw signUpError;
-        alert("Check your email for the confirmation link!");
-      } else {
-        const { error: signInError } = await supabase.auth.signInWithPassword({
+
+        if (error) {
+          setErrorMsg(error.message);
+        } else {
+          router.push("/dashboard");
+          router.refresh();
+        }
+      } else if (mode === "signup") {
+        const { error } = await supabase.auth.signUp({
           email,
           password,
         });
-        if (signInError) throw signInError;
-        router.push("/dashboard");
+
+        if (error) {
+          setErrorMsg(error.message);
+        } else {
+          setSuccessMsg("Account created! Check your email to confirm registration.");
+        }
+      } else if (mode === "forgot") {
+        const redirectTo = `${window.location.origin}/reset-password`;
+
+        const { error } = await supabase.auth.resetPasswordForEmail(email, {
+          redirectTo,
+        });
+
+        if (error) {
+          setErrorMsg(error.message);
+        } else {
+          setSuccessMsg("Password reset link sent! Please check your email inbox.");
+        }
       }
-    } catch (err: unknown) {
-      if (err instanceof Error) {
-        setError(err.message);
-      } else {
-        setError("An unexpected error occurred.");
-      }
+    } catch {
+      setErrorMsg("An unexpected error occurred. Please try again.");
     } finally {
       setLoading(false);
     }
   };
 
   return (
-    <div className="min-h-[80vh] flex items-center justify-center p-4">
-      <Card className="w-full max-w-md shadow-sm border border-gray-100">
+    <div className="min-h-screen bg-gray-50 flex items-center justify-center p-4">
+      <Card className="w-full max-w-md shadow-md">
         <CardHeader className="text-center pb-4">
-          <CardTitle className="text-2xl font-bold tracking-tight text-gray-900">
+          <CardTitle className="text-2xl font-bold tracking-tight">
             AssertGrid
           </CardTitle>
         </CardHeader>
+
         <CardContent>
+          {errorMsg && (
+            <div className="mb-4 p-3 text-sm text-red-600 bg-red-50 border border-red-200 rounded-md text-center">
+              {errorMsg}
+            </div>
+          )}
+
+          {successMsg && (
+            <div className="mb-4 p-3 text-sm text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-md text-center">
+              {successMsg}
+            </div>
+          )}
+
           <form onSubmit={handleAuth} className="space-y-4">
-            {error && (
-              <div className="p-3 text-sm text-red-600 bg-red-50 rounded-md border border-red-100">
-                {error}
-              </div>
-            )}
             <div>
               <Input
                 type="email"
-                placeholder="Email"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
-                required
-              />
-            </div>
-            <div>
-              <Input
-                type="password"
-                placeholder="Password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
+                placeholder="email@example.com"
                 required
               />
             </div>
 
-            <div className="flex gap-2 pt-2">
-              <Button
-                type="submit"
-                className="flex-1"
-                variant={!isSignUp ? "default" : "outline"}
-                onClick={() => setIsSignUp(false)}
-                disabled={loading}
-              >
-                {loading && !isSignUp ? "Loading..." : "Login"}
-              </Button>
-              <Button
-                type="submit"
-                className="flex-1"
-                variant={isSignUp ? "default" : "outline"}
-                onClick={() => setIsSignUp(true)}
-                disabled={loading}
-              >
-                {loading && isSignUp ? "Loading..." : "Sign Up"}
-              </Button>
-            </div>
+            {mode !== "forgot" && (
+              <div>
+                <Input
+                  type="password"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  placeholder="••••••••••••"
+                  required
+                />
+                <div className="flex justify-end mt-1.5">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setMode("forgot");
+                      setErrorMsg(null);
+                      setSuccessMsg(null);
+                    }}
+                    className="text-xs text-blue-600 hover:underline focus:outline-none"
+                  >
+                    Forgot password?
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {mode === "forgot" ? (
+              <div className="space-y-2 pt-2">
+                <Button type="submit" className="w-full" disabled={loading}>
+                  {loading ? "Sending..." : "Send Reset Link"}
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="w-full"
+                  onClick={() => {
+                    setMode("login");
+                    setErrorMsg(null);
+                    setSuccessMsg(null);
+                  }}
+                >
+                  Back to Login
+                </Button>
+              </div>
+            ) : (
+              <div className="grid grid-cols-2 gap-3 pt-2">
+                <Button
+                  type="submit"
+                  variant={mode === "login" ? "default" : "outline"}
+                  onClick={() => setMode("login")}
+                  disabled={loading}
+                >
+                  {loading && mode === "login" ? "Logging in..." : "Login"}
+                </Button>
+                <Button
+                  type="submit"
+                  variant={mode === "signup" ? "default" : "outline"}
+                  onClick={() => setMode("signup")}
+                  disabled={loading}
+                >
+                  {loading && mode === "signup" ? "Signing up..." : "Sign Up"}
+                </Button>
+              </div>
+            )}
           </form>
         </CardContent>
       </Card>
