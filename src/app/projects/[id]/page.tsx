@@ -22,7 +22,7 @@ interface TestStep {
 
 interface TestRunResult {
   testName: string;
-  overallStatus: "PASSED" | "FAILED";
+  overallStatus: "passed" | "failed";
   totalLatency: number;
   stepsEvaluated: number;
   steps: TestStep[];
@@ -93,7 +93,9 @@ export default function ProjectWorkspacePage({
     const endTime = performance.now();
     const calculatedLatency = Math.round(endTime - startTime) + 550;
     const isPassed = mockSteps.every((s) => s.passed);
-    const overallStatus: "PASSED" | "FAILED" = isPassed ? "PASSED" : "FAILED";
+
+    // Set status to lowercase to pass Supabase check constraint ('passed' / 'failed')
+    const overallStatus: "passed" | "failed" = isPassed ? "passed" : "failed";
 
     setRunResult({
       testName: activeTest.name,
@@ -107,7 +109,7 @@ export default function ProjectWorkspacePage({
       const payload = {
         project_id: projectId,
         test_id: activeTest.id,
-        status: overallStatus,
+        status: overallStatus, // now sends "passed" or "failed"
         latency: calculatedLatency,
       };
 
@@ -201,9 +203,9 @@ export default function ProjectWorkspacePage({
               </DialogTitle>
               <Badge
                 className={
-                  runResult.overallStatus === "PASSED"
-                    ? "bg-emerald-100 text-emerald-700 hover:bg-emerald-100"
-                    : "bg-red-100 text-red-700 hover:bg-red-100"
+                  runResult.overallStatus === "passed"
+                    ? "bg-emerald-100 text-emerald-700 hover:bg-emerald-100 uppercase"
+                    : "bg-red-100 text-red-700 hover:bg-red-100 uppercase"
                 }
               >
                 {runResult.overallStatus}
