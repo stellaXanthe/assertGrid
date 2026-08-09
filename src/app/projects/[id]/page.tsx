@@ -269,7 +269,7 @@ export default function ProjectWorkspacePage({
           steps: testItem.steps || [],
           expected_status: testItem.expected_status || 200,
           headless: !isHeaded,
-          captureAllSteps: true, // Instructions to backend to record screenshots for every step
+          captureAllSteps: true,
         }),
       });
 
@@ -561,11 +561,11 @@ export default function ProjectWorkspacePage({
         </div>
       </div>
 
-      {/* Full Screen Execution Results Modal */}
+      {/* Complete Fullscreen Dialog (Overrides Radix/shadcn Defaults) */}
       {runResult && (
         <Dialog open={modalOpen} onOpenChange={setModalOpen}>
-          <DialogContent className="w-screen h-screen max-w-none max-h-none rounded-none m-0 p-6 bg-white flex flex-col justify-between border-none">
-            {/* Header section */}
+          <DialogContent className="fixed top-0 left-0 translate-x-0 translate-y-0 w-screen h-screen max-w-none max-h-none rounded-none m-0 p-6 bg-white flex flex-col justify-between border-none z-50">
+            {/* Modal Header */}
             <DialogHeader className="flex flex-row items-center justify-between border-b pb-4 shrink-0">
               <div>
                 <DialogTitle className="text-2xl font-bold text-gray-900">
@@ -576,8 +576,8 @@ export default function ProjectWorkspacePage({
                   <span className="font-semibold text-gray-800">
                     {runResult.executionMode}
                   </span>{" "}
-                  | Latency: <strong>{runResult.totalLatency}ms</strong> | Total Steps:{" "}
-                  <strong>{runResult.stepsEvaluated}</strong>
+                  | Latency: <strong>{runResult.totalLatency}ms</strong> | Total
+                  Steps: <strong>{runResult.stepsEvaluated}</strong>
                 </p>
               </div>
               <div className="flex items-center gap-4">
@@ -599,10 +599,10 @@ export default function ProjectWorkspacePage({
               </div>
             </DialogHeader>
 
-            {/* Split Screen Workspace Area */}
-            <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 py-4 overflow-hidden flex-1">
-              {/* Step Navigation Sidebar */}
-              <div className="lg:col-span-3 flex flex-col space-y-2 overflow-y-auto pr-2 border-r border-gray-200">
+            {/* Main Full-Width Content Container */}
+            <div className="grid grid-cols-12 gap-6 py-4 flex-1 overflow-hidden">
+              {/* Left Column - Step Navigation List */}
+              <div className="col-span-3 flex flex-col space-y-2 overflow-y-auto pr-2 border-r border-gray-200">
                 <h4 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">
                   Captured Steps ({runResult.steps.length})
                 </h4>
@@ -655,8 +655,8 @@ export default function ProjectWorkspacePage({
                 })}
               </div>
 
-              {/* Ultra Wide Screenshot Inspector */}
-              <div className="lg:col-span-9 flex flex-col bg-slate-950 rounded-xl p-4 text-white overflow-hidden border border-slate-800 shadow-2xl">
+              {/* Right Column - Large Screenshot Inspector */}
+              <div className="col-span-9 flex flex-col bg-slate-950 rounded-xl p-4 text-white overflow-hidden border border-slate-800 shadow-2xl">
                 <div className="flex items-center justify-between pb-3 border-b border-slate-800 shrink-0">
                   <div className="flex items-center gap-2">
                     <span className="relative flex h-2.5 w-2.5">
