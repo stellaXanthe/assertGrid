@@ -78,7 +78,9 @@ export default function ProjectWorkspacePage({
   const [fetchingTests, setFetchingTests] = useState(true);
   const [modalOpen, setModalOpen] = useState(false);
   const [runResult, setRunResult] = useState<TestRunResult | null>(null);
-  const [activeScreenshot, setActiveScreenshot] = useState<string | null>(null);
+
+  // Active step index for viewing individual step screenshots
+  const [activeStepIndex, setActiveStepIndex] = useState<number>(0);
 
   // Execution Mode Selection
   const [isHeaded, setIsHeaded] = useState(false);
@@ -309,8 +311,7 @@ export default function ProjectWorkspacePage({
       targetUrl,
     });
 
-    const firstShot = stepsEvaluated.find((s) => s.screenshot)?.screenshot;
-    setActiveScreenshot(firstShot || null);
+    setActiveStepIndex(0);
 
     try {
       const payload = {
@@ -559,55 +560,105 @@ export default function ProjectWorkspacePage({
         </div>
       </div>
 
-      {/* Execution Results & Screenshot Modal */}
+      {/* Page-Wide Execution Results Modal with Step-by-Step Screenshot Viewer */}
       {runResult && (
         <Dialog open={modalOpen} onOpenChange={setModalOpen}>
-          <DialogContent className="max-w-3xl p-6 bg-white rounded-xl">
-            <DialogHeader className="flex flex-row items-center justify-between border-b pb-4">
+          <DialogContent className="max-w-[95vw] w-[95vw] max-h-[90vh] h-[85vh] flex flex-col p-6 bg-white rounded-xl">
+            <DialogHeader className="flex flex-row items-center justify-between border-b pb-4 shrink-0">
               <div>
-                <DialogTitle className="text-xl font-bold">
+                <DialogTitle className="text-2xl font-bold text-gray-900">
                   {runResult.testName}
                 </DialogTitle>
                 <p className="text-xs text-gray-500 capitalize mt-1">
                   Mode:{" "}
                   <span className="font-semibold text-gray-800">
                     {runResult.executionMode}
-                  </span>
+                  </span>{" "}
+                  | Latency: <strong>{runResult.totalLatency}ms</strong> | Total Steps:{" "}
+                  <strong>{runResult.stepsEvaluated}</strong>
                 </p>
               </div>
               <Badge
                 className={
                   runResult.overallStatus === "passed"
-                    ? "bg-emerald-100 text-emerald-700 hover:bg-emerald-100 uppercase"
-                    : "bg-red-100 text-red-700 hover:bg-red-100 uppercase"
+                    ? "bg-emerald-100 text-emerald-700 hover:bg-emerald-100 uppercase text-sm px-3 py-1"
+                    : "bg-red-100 text-red-700 hover:bg-red-100 uppercase text-sm px-3 py-1"
                 }
               >
                 {runResult.overallStatus}
               </Badge>
             </DialogHeader>
 
-            <div className="py-4 space-y-4">
-              <div className="bg-gray-50 p-3 rounded-lg flex justify-between text-xs text-gray-600">
-                <span>
-                  Total Latency: <strong>{runResult.totalLatency}ms</strong>
-                </span>
-                <span>
-                  Steps Evaluated: <strong>{runResult.stepsEvaluated}</strong>
-                </span>
+            {/* Split Screen Layout */}
+            <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 py-4 overflow-hidden flex-1">
+              {/* Step Navigation Sidebar */}
+              <div className="lg:col-span-4 flex flex-col space-y-2 overflow-y-auto pr-2 border-r">
+                <h4 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">
+                  Test Execution Steps
+                </h4>
+
+                {runResult.steps.map((step, idx) => {
+                  const isSelected = activeStepIndex === idx;
+                  return (
+                    <div
+                      key={step.step}
+                      onClick={() => setActiveStepIndex(idx)}
+                      className={`p-3 border rounded-lg cursor-pointer transition-all flex flex-col justify-between gap-2 ${
+                        isSelected
+                          ? "border-blue-600 bg-blue-50/50 ring-2 ring-blue-500/20"
+                          : "bg-white hover:border-gray-400 hover:bg-gray-50"
+                      }`}
+                    >
+                      <div className="flex justify-between items-start">
+                        <span className="text-xs font-mono font-bold text-gray-500">
+                          Step #{step.step}
+                        </span>
+                        <span
+                          className={`text-xs font-bold ${
+                            step.passed ? "text-emerald-600" : "text-red-600"
+                          }`}
+                        >
+                          {step.passed ? "✓ PASSED" : "✕ FAILED"}
+                        </span>
+                      </div>
+
+                      <p className="text-sm font-medium text-gray-900">
+                        {step.title}
+                      </p>
+
+                      <div className="flex justify-between items-center text-xs text-gray-500 pt-1 border-t border-gray-100">
+                        <span>
+                          Status: <strong>{step.statusReturned}</strong>
+                        </span>
+                        {step.screenshot ? (
+                          <span className="text-[10px] text-emerald-700 bg-emerald-100 px-2 py-0.5 rounded font-mono font-semibold">
+                            📷 Screenshot
+                          </span>
+                        ) : (
+                          <span className="text-[10px] text-gray-400 font-mono">
+                            No Screenshot
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
               </div>
 
-              {/* Passed Test Screenshot Preview Panel */}
-              <div className="border rounded-lg p-4 bg-slate-900 text-white shadow-lg space-y-3">
-                <div className="flex items-center justify-between">
+              {/* Large Image Screenshot Viewer */}
+              <div className="lg:col-span-8 flex flex-col bg-slate-900 rounded-lg p-4 text-white overflow-hidden border border-slate-800 shadow-inner">
+                <div className="flex items-center justify-between pb-3 border-b border-slate-800 shrink-0">
                   <div className="flex items-center gap-2">
                     <span className="relative flex h-2.5 w-2.5">
                       <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
                       <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-emerald-500"></span>
                     </span>
-                    <span className="font-semibold text-xs">
-                      Passed Test Verification Snapshot
+                    <span className="font-semibold text-xs text-slate-200">
+                      Step #{runResult.steps[activeStepIndex]?.step}:{" "}
+                      {runResult.steps[activeStepIndex]?.title}
                     </span>
                   </div>
+
                   {runResult.targetUrl && (
                     <Button
                       size="sm"
@@ -615,73 +666,35 @@ export default function ProjectWorkspacePage({
                       onClick={() => window.open(runResult.targetUrl!, "_blank")}
                       className="text-[11px] text-emerald-400 hover:text-emerald-300 p-0 h-auto cursor-pointer"
                     >
-                      Open target URL ↗
+                      Open Target URL ↗
                     </Button>
                   )}
                 </div>
 
-                {activeScreenshot ? (
-                  <div className="overflow-hidden rounded border border-slate-700 max-h-[300px]">
-                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                <div className="flex-1 flex items-center justify-center overflow-auto mt-3 rounded border border-slate-800 bg-slate-950 p-2">
+                  {runResult.steps[activeStepIndex]?.screenshot ? (
+                    /* eslint-disable-next-line @next/next/no-img-element */
                     <img
-                      src={activeScreenshot}
-                      alt="Passed Test Snapshot"
-                      className="w-full object-cover object-top"
+                      src={runResult.steps[activeStepIndex].screenshot!}
+                      alt={`Step ${runResult.steps[activeStepIndex].step} Screenshot`}
+                      className="max-w-full max-h-full object-contain rounded shadow-lg"
                     />
-                  </div>
-                ) : (
-                  <div className="p-6 text-center text-xs text-slate-400 bg-slate-950/60 rounded border border-slate-800">
-                    No screenshot available for this step.
-                  </div>
-                )}
-              </div>
-
-              {/* Step Execution Logs */}
-              <div className="space-y-2 max-h-[220px] overflow-y-auto pr-1">
-                {runResult.steps.map((step) => (
-                  <div
-                    key={step.step}
-                    onClick={() =>
-                      step.screenshot && setActiveScreenshot(step.screenshot)
-                    }
-                    className={`p-3 border rounded-lg flex justify-between items-center transition-all ${
-                      step.screenshot
-                        ? "cursor-pointer hover:border-blue-400 bg-blue-50/20"
-                        : "bg-white"
-                    }`}
-                  >
-                    <div>
-                      <p className="text-sm font-medium text-gray-800 flex items-center gap-2">
-                        <span>{step.title}</span>
-                        {step.screenshot && (
-                          <span className="text-[10px] text-emerald-700 bg-emerald-100 px-1.5 py-0.5 rounded font-mono font-semibold">
-                            📷 Screenshot Saved
-                          </span>
-                        )}
-                      </p>
-                      <p className="text-xs text-gray-500 mt-0.5">
-                        Status Returned: {step.statusReturned} | Expected:{" "}
-                        {step.expected}
-                      </p>
+                  ) : (
+                    <div className="text-center p-8 text-slate-500 text-xs">
+                      <p className="text-xl mb-2">🖼️</p>
+                      No screenshot captured for this step.
                     </div>
-                    <span
-                      className={`text-xs font-bold ${
-                        step.passed ? "text-emerald-600" : "text-red-600"
-                      }`}
-                    >
-                      {step.passed ? "✓ PASSED" : "✕ FAILED"}
-                    </span>
-                  </div>
-                ))}
+                  )}
+                </div>
               </div>
             </div>
 
-            <div className="flex justify-end pt-2 border-t">
+            <div className="flex justify-end pt-3 border-t shrink-0">
               <Button
                 onClick={() => setModalOpen(false)}
                 className="bg-black text-white hover:bg-gray-800 cursor-pointer"
               >
-                Close
+                Close View
               </Button>
             </div>
           </DialogContent>
