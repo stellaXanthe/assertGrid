@@ -44,7 +44,7 @@ interface TestRunResult {
   totalLatency: number;
   stepsEvaluated: number;
   steps: TestStepResult[];
-  liveEmbedUrl?: string | null;
+  targetUrl?: string | null;
 }
 
 interface TestItem {
@@ -78,7 +78,7 @@ export default function ProjectWorkspacePage({
   const [fetchingTests, setFetchingTests] = useState(true);
   const [modalOpen, setModalOpen] = useState(false);
   const [runResult, setRunResult] = useState<TestRunResult | null>(null);
-  const [activeStepScreenshot, setActiveStepScreenshot] = useState<string | null>(null);
+  const [activeScreenshot, setActiveScreenshot] = useState<string | null>(null);
 
   // Execution Mode Selection
   const [isHeaded, setIsHeaded] = useState(false);
@@ -252,7 +252,7 @@ export default function ProjectWorkspacePage({
 
     let stepsEvaluated: TestStepResult[] = [];
     let isPassed = true;
-    let liveEmbedUrl: string | null = null;
+    let targetUrl: string | null = null;
 
     try {
       const res = await fetch("/api/run-test", {
@@ -274,14 +274,14 @@ export default function ProjectWorkspacePage({
         const liveData = await res.json();
         stepsEvaluated = liveData.steps || [];
         isPassed = liveData.passed ?? true;
-        liveEmbedUrl = liveData.liveEmbedUrl || null;
+        targetUrl = liveData.targetUrl || testItem.url || null;
       } else {
         let errorMessage = "Server processing error.";
         try {
           const errorData = await res.json();
           errorMessage = errorData.error || errorMessage;
         } catch {
-          errorMessage = `HTTP ${res.status}: Execution error received. Check Vercel logs.`;
+          errorMessage = `HTTP ${res.status}: Execution error. Check Vercel logs.`;
         }
 
         alert(`Execution failed: ${errorMessage}`);
@@ -306,11 +306,11 @@ export default function ProjectWorkspacePage({
       totalLatency: calculatedLatency,
       stepsEvaluated: stepsEvaluated.length,
       steps: stepsEvaluated,
-      liveEmbedUrl,
+      targetUrl,
     });
 
-    const firstScreenshot = stepsEvaluated.find((s) => s.screenshot)?.screenshot;
-    setActiveStepScreenshot(firstScreenshot || null);
+    const firstShot = stepsEvaluated.find((s) => s.screenshot)?.screenshot;
+    setActiveScreenshot(firstShot || null);
 
     try {
       const payload = {
@@ -360,7 +360,7 @@ export default function ProjectWorkspacePage({
   return (
     <div className="min-h-screen bg-gray-50 p-8">
       <div className="max-w-5xl mx-auto space-y-6">
-        {/* Workspace Header */}
+        {/* Workspace Top Bar */}
         <Card>
           <CardContent className="p-6 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
             <div>
@@ -396,7 +396,7 @@ export default function ProjectWorkspacePage({
                 <button
                   type="button"
                   onClick={() => setIsHeaded(true)}
-                  title="Launch live UI mode"
+                  title="Launch live UI mode with rendered DOM view"
                   className={`px-3 py-1.5 text-xs font-semibold rounded-md transition-all cursor-pointer ${
                     isHeaded
                       ? "bg-white text-gray-900 shadow-sm"
@@ -559,7 +559,7 @@ export default function ProjectWorkspacePage({
         </div>
       </div>
 
-      {/* Execution Results & Interactive Live UI Modal */}
+      {/* Execution Results & Screenshot Modal */}
       {runResult && (
         <Dialog open={modalOpen} onOpenChange={setModalOpen}>
           <DialogContent className="max-w-3xl p-6 bg-white rounded-xl">
@@ -596,58 +596,53 @@ export default function ProjectWorkspacePage({
                 </span>
               </div>
 
-              {/* Headed Interactive Remote View */}
-              {runResult.executionMode === "headed" && (
-                <div className="border rounded-lg p-5 bg-slate-900 text-white shadow-lg space-y-3">
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-2">
-                      <span className="relative flex h-3 w-3">
-                        <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
-                        <span className="relative inline-flex rounded-full h-3 w-3 bg-emerald-500"></span>
-                      </span>
-                      <span className="font-semibold text-sm">
-                        Live Interactive Remote Session
-                      </span>
-                    </div>
-                    <Badge variant="outline" className="text-emerald-400 border-emerald-500/40 text-[10px]">
-                      ACTIVE
-                    </Badge>
+              {/* Passed Test Screenshot Preview Panel */}
+              <div className="border rounded-lg p-4 bg-slate-900 text-white shadow-lg space-y-3">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <span className="relative flex h-2.5 w-2.5">
+                      <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                      <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-emerald-500"></span>
+                    </span>
+                    <span className="font-semibold text-xs">
+                      Passed Test Verification Snapshot
+                    </span>
                   </div>
-
-                  <p className="text-xs text-slate-300">
-                    Click below to open a live browser session where you can interactively view and test the application.
-                  </p>
-
-                  {runResult.liveEmbedUrl ? (
-                    <div className="pt-2">
-                      <Button
-                        onClick={() =>
-                          window.open(
-                            runResult.liveEmbedUrl!,
-                            "_blank",
-                            "width=1280,height=800,resizable=yes,scrollbars=yes"
-                          )
-                        }
-                        className="w-full bg-emerald-500 hover:bg-emerald-600 text-slate-950 font-bold text-xs py-2.5 rounded-md transition-colors flex items-center justify-center gap-2 cursor-pointer"
-                      >
-                        🖥️ Launch Live Interactive Browser Window ↗
-                      </Button>
-                    </div>
-                  ) : (
-                    <div className="p-4 text-center text-xs text-slate-400 bg-slate-950/50 rounded border border-slate-800">
-                      No interactive session URL available. Verify <code>BROWSERLESS_API_KEY</code> on Vercel.
-                    </div>
+                  {runResult.targetUrl && (
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      onClick={() => window.open(runResult.targetUrl!, "_blank")}
+                      className="text-[11px] text-emerald-400 hover:text-emerald-300 p-0 h-auto cursor-pointer"
+                    >
+                      Open target URL ↗
+                    </Button>
                   )}
                 </div>
-              )}
+
+                {activeScreenshot ? (
+                  <div className="overflow-hidden rounded border border-slate-700 max-h-[300px]">
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img
+                      src={activeScreenshot}
+                      alt="Passed Test Snapshot"
+                      className="w-full object-cover object-top"
+                    />
+                  </div>
+                ) : (
+                  <div className="p-6 text-center text-xs text-slate-400 bg-slate-950/60 rounded border border-slate-800">
+                    No screenshot available for this step.
+                  </div>
+                )}
+              </div>
 
               {/* Step Execution Logs */}
-              <div className="space-y-2 max-h-[200px] overflow-y-auto pr-1">
+              <div className="space-y-2 max-h-[220px] overflow-y-auto pr-1">
                 {runResult.steps.map((step) => (
                   <div
                     key={step.step}
                     onClick={() =>
-                      step.screenshot && setActiveStepScreenshot(step.screenshot)
+                      step.screenshot && setActiveScreenshot(step.screenshot)
                     }
                     className={`p-3 border rounded-lg flex justify-between items-center transition-all ${
                       step.screenshot
@@ -658,6 +653,11 @@ export default function ProjectWorkspacePage({
                     <div>
                       <p className="text-sm font-medium text-gray-800 flex items-center gap-2">
                         <span>{step.title}</span>
+                        {step.screenshot && (
+                          <span className="text-[10px] text-emerald-700 bg-emerald-100 px-1.5 py-0.5 rounded font-mono font-semibold">
+                            📷 Screenshot Saved
+                          </span>
+                        )}
                       </p>
                       <p className="text-xs text-gray-500 mt-0.5">
                         Status Returned: {step.statusReturned} | Expected:{" "}
