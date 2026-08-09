@@ -281,7 +281,7 @@ export default function ProjectWorkspacePage({
           const errorData = await res.json();
           errorMessage = errorData.error || errorMessage;
         } catch {
-          errorMessage = `HTTP ${res.status}: Non-JSON response received. Check Vercel serverless function logs.`;
+          errorMessage = `HTTP ${res.status}: Execution error received. Check Vercel logs.`;
         }
 
         alert(`Execution failed: ${errorMessage}`);
@@ -360,7 +360,7 @@ export default function ProjectWorkspacePage({
   return (
     <div className="min-h-screen bg-gray-50 p-8">
       <div className="max-w-5xl mx-auto space-y-6">
-        {/* Workspace Top Navigation & Actions */}
+        {/* Workspace Header */}
         <Card>
           <CardContent className="p-6 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
             <div>
@@ -596,7 +596,7 @@ export default function ProjectWorkspacePage({
                 </span>
               </div>
 
-              {/* Headed Interactive Browser Launch Area */}
+              {/* Headed Interactive Remote View */}
               {runResult.executionMode === "headed" && (
                 <div className="border rounded-lg p-5 bg-slate-900 text-white shadow-lg space-y-3">
                   <div className="flex items-center justify-between">
@@ -615,7 +615,7 @@ export default function ProjectWorkspacePage({
                   </div>
 
                   <p className="text-xs text-slate-300">
-                    Click below to open a full, interactive cloud browser session where you can directly click, type, and inspect the target application.
+                    Click below to open a live browser session where you can interactively view and test the application.
                   </p>
 
                   {runResult.liveEmbedUrl ? (
@@ -658,11 +658,6 @@ export default function ProjectWorkspacePage({
                     <div>
                       <p className="text-sm font-medium text-gray-800 flex items-center gap-2">
                         <span>{step.title}</span>
-                        {step.screenshot && (
-                          <span className="text-[10px] text-blue-600 bg-blue-100 px-1.5 py-0.5 rounded">
-                            📷 Snapshot
-                          </span>
-                        )}
                       </p>
                       <p className="text-xs text-gray-500 mt-0.5">
                         Status Returned: {step.statusReturned} | Expected:{" "}

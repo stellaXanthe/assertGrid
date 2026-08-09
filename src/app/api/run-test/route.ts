@@ -1,6 +1,5 @@
 import { NextResponse } from "next/server";
 
-// Keep maxDuration within Vercel Hobby limits (10s max for free tier)
 export const maxDuration = 10;
 
 export async function POST(req: Request) {
@@ -9,13 +8,13 @@ export async function POST(req: Request) {
     const { url, steps, headless, expected_status } = body;
 
     const runHeadless = typeof headless === "boolean" ? headless : true;
-    const BROWSERLESS_TOKEN = process.env.BROWSERLESS_API_KEY;
+    const BROWSERLESS_TOKEN = process.env.BROWSERLESS_API_KEY?.trim();
 
     if (!BROWSERLESS_TOKEN) {
       return NextResponse.json(
         {
           error:
-            "BROWSERLESS_API_KEY environment variable is missing on Vercel. Please set it in Vercel Project Settings.",
+            "BROWSERLESS_API_KEY is missing or empty on Vercel. Please add it to Vercel Environment Variables.",
         },
         { status: 400 }
       );
@@ -28,7 +27,7 @@ export async function POST(req: Request) {
     // 1. HEADED MODE (Live UI Remote Session via Browserless)
     // -----------------------------------------------------------------
     if (!runHeadless) {
-      // Direct Browserless Live Debugger URL for standalone window popup
+      // Official Browserless Live Interactive Session URL
       const liveEmbedUrl = `https://chrome.browserless.io/live?token=${BROWSERLESS_TOKEN}&url=${encodeURIComponent(
         targetUrl
       )}`;
@@ -78,7 +77,7 @@ export async function POST(req: Request) {
     if (!response.ok) {
       const errText = await response.text();
       return NextResponse.json(
-        { error: `Browserless execution error: ${errText}` },
+        { error: `Browserless execution error (${response.status}): ${errText}` },
         { status: response.status }
       );
     }
