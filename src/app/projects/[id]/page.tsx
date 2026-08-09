@@ -281,7 +281,7 @@ export default function ProjectWorkspacePage({
           const errorData = await res.json();
           errorMessage = errorData.error || errorMessage;
         } catch {
-          errorMessage = `HTTP ${res.status}: Non-JSON response received.`;
+          errorMessage = `HTTP ${res.status}: Non-JSON response received. Check Vercel serverless function logs.`;
         }
 
         alert(`Execution failed: ${errorMessage}`);
