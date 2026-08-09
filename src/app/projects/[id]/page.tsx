@@ -269,7 +269,28 @@ export default function ProjectWorkspacePage({
 
       if (res.ok) {
         const liveData = await res.json();
-        stepsEvaluated = liveData.steps || [];
+        
+        // Ensure steps map correctly to individual step screenshot fields
+        const rawSteps = liveData.steps || [];
+        stepsEvaluated = rawSteps.map((s: Record<string, unknown>, index: number) => {
+          const stepScreenshot =
+            (s.screenshot as string) ||
+            (s.screenshotUrl as string) ||
+            (s.screenshot_url as string) ||
+            (s.image as string) ||
+            (s.base64 as string) ||
+            null;
+
+          return {
+            step: typeof s.step === "number" ? s.step : index + 1,
+            title: (s.title as string) || (s.action as string) || `Step #${index + 1}`,
+            statusReturned: (s.statusReturned as number) || (s.status as number) || 200,
+            expected: (s.expected as number) || 200,
+            passed: s.passed !== undefined ? Boolean(s.passed) : true,
+            screenshot: stepScreenshot,
+          };
+        });
+
         isPassed = liveData.passed ?? true;
         targetUrl = liveData.targetUrl || testItem.url || null;
       } else {
@@ -352,6 +373,8 @@ export default function ProjectWorkspacePage({
       setTests((prev) => prev.filter((t) => t.id !== testId));
     }
   };
+
+  const currentStep = runResult?.steps[activeStepIndex];
 
   return (
     <div className="min-h-screen bg-gray-50 p-8">
@@ -555,7 +578,7 @@ export default function ProjectWorkspacePage({
         </div>
       </div>
 
-      {/* FULL-SCREEN OVERLAY WORKSPACE (Replaces dialog constrained container) */}
+      {/* ULTRA-WIDE FULL-SCREEN OVERLAY INSPECTOR */}
       {modalOpen && runResult && (
         <div className="fixed inset-0 z-[9999] bg-slate-950 flex flex-col w-screen h-screen overflow-hidden text-slate-100 animate-in fade-in duration-150">
           {/* Top Bar Navigation */}
@@ -640,7 +663,7 @@ export default function ProjectWorkspacePage({
                   const isSelected = activeStepIndex === idx;
                   return (
                     <div
-                      key={step.step}
+                      key={`step-item-${step.step}-${idx}`}
                       onClick={() => setActiveStepIndex(idx)}
                       className={`p-3.5 rounded-lg cursor-pointer transition-all border ${
                         isSelected
@@ -688,36 +711,37 @@ export default function ProjectWorkspacePage({
               <div className="flex items-center justify-between pb-3 mb-4 border-b border-slate-800/80 shrink-0">
                 <div className="flex items-center gap-3">
                   <span className="px-2.5 py-1 bg-blue-500/10 border border-blue-500/30 text-blue-400 rounded text-xs font-mono font-bold">
-                    STEP {runResult.steps[activeStepIndex]?.step ?? 1}
+                    STEP {currentStep?.step ?? activeStepIndex + 1}
                   </span>
                   <h3 className="text-base font-semibold text-slate-200">
-                    {runResult.steps[activeStepIndex]?.title}
+                    {currentStep?.title || "Step Analysis"}
                   </h3>
                 </div>
 
                 <div className="text-xs text-slate-400 font-mono">
                   Status Code:{" "}
                   <span className="text-emerald-400 font-bold">
-                    {runResult.steps[activeStepIndex]?.statusReturned}
+                    {currentStep?.statusReturned ?? 200}
                   </span>
                 </div>
               </div>
 
-              {/* Responsive Image Display Box */}
+              {/* Dynamic Image Container forcing React key unmount on active index change */}
               <div className="flex-1 relative bg-slate-900/40 border border-slate-800/90 rounded-xl flex items-center justify-center p-4 overflow-hidden shadow-inner">
-                {runResult.steps[activeStepIndex]?.screenshot ? (
+                {currentStep?.screenshot ? (
                   <div className="w-full h-full flex items-center justify-center relative">
                     {/* eslint-disable-next-line @next/next/no-img-element */}
                     <img
-                      src={runResult.steps[activeStepIndex].screenshot!}
-                      alt={`Step ${runResult.steps[activeStepIndex].step} Screenshot`}
-                      className="max-w-full max-h-full object-contain rounded-lg border border-slate-800 shadow-2xl transition-all duration-200"
+                      key={`screenshot-step-${activeStepIndex}-${currentStep.screenshot.slice(-20)}`}
+                      src={currentStep.screenshot}
+                      alt={`Step ${currentStep.step} Screenshot`}
+                      className="max-w-full max-h-full object-contain rounded-lg border border-slate-800 shadow-2xl transition-all duration-150"
                     />
                   </div>
                 ) : (
                   <div className="flex flex-col items-center justify-center text-slate-500 space-y-2">
                     <span className="text-4xl">🖥️</span>
-                    <p className="text-sm">No screenshot captured for this step.</p>
+                    <p className="text-sm">No screenshot captured for Step #{activeStepIndex + 1}.</p>
                   </div>
                 )}
               </div>
