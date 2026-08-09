@@ -1,15 +1,16 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import Link from "next/link";
 import { createClient } from "@/lib/supabase/client";
-import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 
-interface Metrics {
+interface ProjectMetrics {
+  totalExecutions: number;
   passRate: number;
   avgLatency: number;
-  totalExecutions: number;
   failedExecutions: number;
 }
 
@@ -17,77 +18,119 @@ interface Project {
   id: string;
   name: string;
   created_at: string;
+  metrics?: ProjectMetrics;
+}
+
+interface TestRun {
+  id: string;
+  project_id: string;
   status: string;
+  duration_ms?: number | null;
+  latency?: number | null;
 }
 
 export default function DashboardPage() {
   const supabase = createClient();
 
-  const [loading, setLoading] = useState(true);
-  const [metrics, setMetrics] = useState<Metrics>({
+  const [projects, setProjects] = useState<Project[]>([]);
+  const [globalMetrics, setGlobalMetrics] = useState<ProjectMetrics>({
     passRate: 0,
     avgLatency: 0,
     totalExecutions: 0,
     failedExecutions: 0,
   });
-
-  const [projects, setProjects] = useState<Project[]>([]);
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     async function loadDashboardData() {
       setLoading(true);
 
-      try {
-        // 1. Fetch test executions to compute statistics
-        const { data: executions, error: execError } = await supabase
-          .from("test_executions")
-          .select("status, latency");
+      // 1. Fetch Projects
+      const { data: projectData, error: projError } = await supabase
+        .from("projects")
+        .select("*")
+        .order("created_at", { ascending: false });
 
-        if (!execError && executions) {
-          const totalExecutions = executions.length;
-
-          if (totalExecutions > 0) {
-            const passedExecutions = executions.filter(
-              (e) => e.status?.toUpperCase() === "PASSED"
-            ).length;
-
-            const failedExecutions = executions.filter(
-              (e) => e.status?.toUpperCase() === "FAILED"
-            ).length;
-
-            const passRate = Math.round(
-              (passedExecutions / totalExecutions) * 100
-            );
-
-            const totalLatency = executions.reduce(
-              (sum, item) => sum + (item.latency || 0),
-              0
-            );
-            const avgLatency = Math.round(totalLatency / totalExecutions);
-
-            setMetrics({
-              passRate,
-              avgLatency,
-              totalExecutions,
-              failedExecutions,
-            });
-          }
-        }
-
-        // 2. Fetch projects list
-        const { data: projectList, error: projError } = await supabase
-          .from("projects")
-          .select("*")
-          .order("created_at", { ascending: false });
-
-        if (!projError && projectList) {
-          setProjects(projectList);
-        }
-      } catch (err) {
-        console.error("Failed to load dashboard metrics:", err);
-      } finally {
+      if (projError) {
+        console.error("Error loading projects:", projError.message);
         setLoading(false);
+        return;
       }
+
+      // 2. Fetch All Test Runs
+      const { data: runsData, error: runsError } = await supabase
+        .from("test_runs")
+        .select("*");
+
+      if (runsError) {
+        console.error("Error loading test runs:", runsError.message);
+      }
+
+      const allRuns: TestRun[] = runsData || [];
+
+      // Calculate Global Metrics
+      if (allRuns.length > 0) {
+        const total = allRuns.length;
+        const passed = allRuns.filter(
+          (r) => r.status?.toLowerCase() === "passed"
+        ).length;
+        const failed = allRuns.filter(
+          (r) => r.status?.toLowerCase() === "failed"
+        ).length;
+
+        const totalMs = allRuns.reduce((acc, r) => {
+          return acc + Number(r.duration_ms ?? r.latency ?? 0);
+        }, 0);
+
+        setGlobalMetrics({
+          passRate: Math.round((passed / total) * 100),
+          avgLatency: Math.round(totalMs / total),
+          totalExecutions: total,
+          failedExecutions: failed,
+        });
+      }
+
+      // 3. Attach Per-Project Metrics
+      const mappedProjects: Project[] = (projectData || []).map((proj) => {
+        const projRuns = allRuns.filter((r) => r.project_id === proj.id);
+        const totalExecs = projRuns.length;
+
+        if (totalExecs === 0) {
+          return {
+            ...proj,
+            metrics: {
+              totalExecutions: 0,
+              passRate: 0,
+              avgLatency: 0,
+              failedExecutions: 0,
+            },
+          };
+        }
+
+        const passed = projRuns.filter(
+          (r) => r.status?.toLowerCase() === "passed"
+        ).length;
+        const failed = projRuns.filter(
+          (r) => r.status?.toLowerCase() === "failed"
+        ).length;
+
+        const totalMs = projRuns.reduce((acc, r) => {
+          return acc + Number(r.duration_ms ?? r.latency ?? 0);
+        }, 0);
+
+        return {
+          ...proj,
+          metrics: {
+            totalExecutions: totalExecs,
+            passRate: Math.round((passed / totalExecs) * 100),
+            avgLatency: Math.round(totalMs / totalExecs),
+            failedExecutions: failed,
+          },
+        };
+      });
+
+      setProjects(mappedProjects);
+      setLoading(false);
     }
 
     loadDashboardData();
@@ -96,126 +139,172 @@ export default function DashboardPage() {
   return (
     <div className="min-h-screen bg-gray-50 p-8">
       <div className="max-w-6xl mx-auto space-y-8">
-        {/* Page Header */}
+        {/* Header */}
         <div className="flex justify-between items-center">
           <div>
-            <h1 className="text-3xl font-extrabold text-gray-900 tracking-tight">
-              Dashboard
-            </h1>
+            <h1 className="text-3xl font-bold text-gray-900">Dashboard</h1>
             <p className="text-sm text-gray-500 mt-1">
               Overview of test suites and system health metrics
             </p>
           </div>
-          <Button className="bg-blue-600 hover:bg-blue-700 text-white font-medium">
-            + New Project
-          </Button>
+          <Badge className="bg-emerald-100 text-emerald-700 hover:bg-emerald-100 px-3 py-1 font-medium">
+            ● System Operational
+          </Badge>
         </div>
 
-        {/* Dynamic Metric Cards */}
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-          {/* Card 1: Pass Rate */}
-          <Card className="bg-white shadow-sm border border-gray-200">
-            <CardContent className="p-5">
-              <p className="text-xs font-bold text-gray-500 uppercase tracking-wider">
-                Uptime / Pass Rate
+        {/* System-Wide Global Metrics Overview */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+          <Card>
+            <CardContent className="p-6">
+              <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider">
+                Overall Pass Rate
               </p>
-              <p className="text-3xl font-extrabold text-emerald-600 mt-3">
-                {loading ? "..." : `${metrics.passRate}%`}
+              <h3 className="text-3xl font-bold text-emerald-600 mt-2">
+                {loading ? "..." : `${globalMetrics.passRate}%`}
+              </h3>
+              <p className="text-xs text-gray-400 mt-1">
+                Across all project suites
               </p>
-              <p className="text-xs text-gray-400 mt-2">Overall suite pass ratio</p>
             </CardContent>
           </Card>
 
-          {/* Card 2: Avg Response Latency */}
-          <Card className="bg-white shadow-sm border border-gray-200">
-            <CardContent className="p-5">
-              <p className="text-xs font-bold text-gray-500 uppercase tracking-wider">
+          <Card>
+            <CardContent className="p-6">
+              <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider">
                 Avg Response Latency
               </p>
-              <p className="text-3xl font-extrabold text-blue-600 mt-3">
-                {loading ? "..." : `${metrics.avgLatency} ms`}
+              <h3 className="text-3xl font-bold text-blue-600 mt-2">
+                {loading ? "..." : `${globalMetrics.avgLatency} ms`}
+              </h3>
+              <p className="text-xs text-gray-400 mt-1">
+                Global average latency
               </p>
-              <p className="text-xs text-gray-400 mt-2">Average response time</p>
             </CardContent>
           </Card>
 
-          {/* Card 3: Total Executions */}
-          <Card className="bg-white shadow-sm border border-gray-200">
-            <CardContent className="p-5">
-              <p className="text-xs font-bold text-gray-500 uppercase tracking-wider">
+          <Card>
+            <CardContent className="p-6">
+              <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider">
                 Total Executions
               </p>
-              <p className="text-3xl font-extrabold text-gray-900 mt-3">
-                {loading ? "..." : metrics.totalExecutions}
+              <h3 className="text-3xl font-bold text-gray-900 mt-2">
+                {loading ? "..." : globalMetrics.totalExecutions}
+              </h3>
+              <p className="text-xs text-gray-400 mt-1">
+                Combined workspace runs
               </p>
-              <p className="text-xs text-gray-400 mt-2">Historical test runs</p>
             </CardContent>
           </Card>
 
-          {/* Card 4: Failed Executions */}
-          <Card className="bg-white shadow-sm border border-gray-200">
-            <CardContent className="p-5">
-              <p className="text-xs font-bold text-gray-500 uppercase tracking-wider">
+          <Card>
+            <CardContent className="p-6">
+              <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider">
                 Failed Executions
               </p>
-              <p className="text-3xl font-extrabold text-red-600 mt-3">
-                {loading ? "..." : metrics.failedExecutions}
-              </p>
-              <p className="text-xs text-gray-400 mt-2">
+              <h3
+                className={`text-3xl font-bold mt-2 ${
+                  globalMetrics.failedExecutions > 0
+                    ? "text-red-600"
+                    : "text-gray-900"
+                }`}
+              >
+                {loading ? "..." : globalMetrics.failedExecutions}
+              </h3>
+              <p className="text-xs text-gray-400 mt-1">
                 Tests requiring attention
               </p>
             </CardContent>
           </Card>
         </div>
 
-        {/* Your Projects Section */}
+        {/* Projects Cards with Per-Project Specific Metrics */}
         <div>
           <div className="flex justify-between items-center mb-4">
             <h2 className="text-xl font-bold text-gray-900">
               Your Projects ({projects.length})
             </h2>
-            <Button variant="outline" size="sm" className="text-xs">
-              + Create Project
-            </Button>
+            <Link href="/projects/new">
+              <Button size="sm">+ Create Project</Button>
+            </Link>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            {projects.map((proj) => (
-              <Card
-                key={proj.id}
-                className="bg-white shadow-sm border border-gray-200 hover:border-gray-300 transition-all"
-              >
-                <CardContent className="p-5 flex flex-col justify-between h-36">
-                  <div className="flex justify-between items-start">
-                    <h3 className="text-lg font-bold text-gray-900">
-                      {proj.name}
-                    </h3>
-                    <Badge variant="secondary" className="bg-gray-100 text-gray-600 text-xs">
-                      {proj.status || "Active"}
-                    </Badge>
-                  </div>
+          {loading ? (
+            <div className="p-8 text-center text-gray-500 text-sm">
+              Loading workspace projects...
+            </div>
+          ) : projects.length === 0 ? (
+            <Card>
+              <CardContent className="p-8 text-center text-gray-500">
+                No projects created yet.
+              </CardContent>
+            </Card>
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {projects.map((proj) => {
+                const m = proj.metrics;
+                return (
+                  <Card key={proj.id} className="hover:shadow-md transition-shadow">
+                    <CardContent className="p-6 flex flex-col justify-between gap-4">
+                      {/* Project Header */}
+                      <div className="flex justify-between items-start">
+                        <div>
+                          <h3 className="text-lg font-bold text-gray-900">
+                            {proj.name}
+                          </h3>
+                          <p className="text-xs text-gray-400 mt-0.5">
+                            Created {new Date(proj.created_at).toLocaleDateString()}
+                          </p>
+                        </div>
+                        <Badge variant="outline" className="text-xs text-gray-500">
+                          Active
+                        </Badge>
+                      </div>
 
-                  <div className="flex justify-between items-center pt-4 border-t border-gray-100">
-                    <span className="text-xs text-gray-400">
-                      Created{" "}
-                      {new Date(proj.created_at).toLocaleDateString("en-US")}
-                    </span>
-                    <div className="flex items-center gap-3">
-                      <button className="text-xs text-red-600 hover:underline">
-                        Delete
-                      </button>
-                      <a
-                        href={`/projects/${proj.id}`}
-                        className="text-xs font-medium bg-black text-white px-3 py-1.5 rounded-md hover:bg-gray-800 transition-colors"
-                      >
-                        Open Workspace &rarr;
-                      </a>
-                    </div>
-                  </div>
-                </CardContent>
-              </Card>
-            ))}
-          </div>
+                      {/* Per-Project Breakdown Badges */}
+                      <div className="grid grid-cols-3 gap-2 bg-gray-50 p-3 rounded-lg text-center border border-gray-100">
+                        <div>
+                          <p className="text-[10px] uppercase font-semibold text-gray-400">
+                            Runs
+                          </p>
+                          <p className="text-sm font-bold text-gray-800">
+                            {m?.totalExecutions ?? 0}
+                          </p>
+                        </div>
+                        <div>
+                          <p className="text-[10px] uppercase font-semibold text-gray-400">
+                            Pass Rate
+                          </p>
+                          <p className="text-sm font-bold text-emerald-600">
+                            {m?.passRate ?? 0}%
+                          </p>
+                        </div>
+                        <div>
+                          <p className="text-[10px] uppercase font-semibold text-gray-400">
+                            Avg Latency
+                          </p>
+                          <p className="text-sm font-bold text-blue-600">
+                            {m?.avgLatency ?? 0} ms
+                          </p>
+                        </div>
+                      </div>
+
+                      {/* Action Button */}
+                      <div className="flex justify-end pt-1">
+                        <Link href={`/projects/${proj.id}`}>
+                          <Button
+                            size="sm"
+                            className="bg-black text-white hover:bg-gray-800 cursor-pointer text-xs"
+                          >
+                            Open Workspace →
+                          </Button>
+                        </Link>
+                      </div>
+                    </CardContent>
+                  </Card>
+                );
+              })}
+            </div>
+          )}
         </div>
       </div>
     </div>
