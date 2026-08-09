@@ -2,8 +2,7 @@ import { NextResponse } from "next/server";
 import chromium from "@sparticuz/chromium";
 import { chromium as playwrightChromium } from "playwright-core";
 
-// Vercel serverless function runtime configuration
-export const maxDuration = 30; // Max execution time for Vercel Hobby/Pro
+export const maxDuration = 30;
 export const dynamic = "force-dynamic";
 
 export async function POST(req: Request) {
@@ -12,7 +11,6 @@ export async function POST(req: Request) {
   try {
     const { steps, headless = true } = await req.json();
 
-    // Check if running on Vercel or locally
     const isVercel = process.env.VERCEL === "1";
 
     if (isVercel) {
@@ -20,9 +18,8 @@ export async function POST(req: Request) {
       const executablePath = await chromium.executablePath();
       browser = await playwrightChromium.launch({
         args: chromium.args,
-        defaultViewport: chromium.defaultViewport,
         executablePath: executablePath,
-        headless: chromium.headless === "shell" ? true : chromium.headless,
+        headless: true,
       });
     } else {
       // Local Development Environment
@@ -31,6 +28,7 @@ export async function POST(req: Request) {
       });
     }
 
+    // Pass viewport options when creating context
     const context = await browser.newContext({
       viewport: { width: 1280, height: 720 },
     });
@@ -65,7 +63,7 @@ export async function POST(req: Request) {
           }
         }
 
-        // Capture step frame screenshot
+        // Capture step screenshot
         const imageBuffer = await page.screenshot({ type: "png" });
         const stepBase64 = `data:image/png;base64,${imageBuffer.toString("base64")}`;
 
