@@ -269,6 +269,7 @@ export default function ProjectWorkspacePage({
           steps: testItem.steps || [],
           expected_status: testItem.expected_status || 200,
           headless: !isHeaded,
+          captureAllSteps: true, // Instructions to backend to record screenshots for every step
         }),
       });
 
@@ -560,10 +561,11 @@ export default function ProjectWorkspacePage({
         </div>
       </div>
 
-      {/* Page-Wide Execution Results Modal with Step-by-Step Screenshot Viewer */}
+      {/* Full Screen Execution Results Modal */}
       {runResult && (
         <Dialog open={modalOpen} onOpenChange={setModalOpen}>
-          <DialogContent className="max-w-[95vw] w-[95vw] max-h-[90vh] h-[85vh] flex flex-col p-6 bg-white rounded-xl">
+          <DialogContent className="w-screen h-screen max-w-none max-h-none rounded-none m-0 p-6 bg-white flex flex-col justify-between border-none">
+            {/* Header section */}
             <DialogHeader className="flex flex-row items-center justify-between border-b pb-4 shrink-0">
               <div>
                 <DialogTitle className="text-2xl font-bold text-gray-900">
@@ -578,23 +580,31 @@ export default function ProjectWorkspacePage({
                   <strong>{runResult.stepsEvaluated}</strong>
                 </p>
               </div>
-              <Badge
-                className={
-                  runResult.overallStatus === "passed"
-                    ? "bg-emerald-100 text-emerald-700 hover:bg-emerald-100 uppercase text-sm px-3 py-1"
-                    : "bg-red-100 text-red-700 hover:bg-red-100 uppercase text-sm px-3 py-1"
-                }
-              >
-                {runResult.overallStatus}
-              </Badge>
+              <div className="flex items-center gap-4">
+                <Badge
+                  className={
+                    runResult.overallStatus === "passed"
+                      ? "bg-emerald-100 text-emerald-700 hover:bg-emerald-100 uppercase text-sm px-3 py-1"
+                      : "bg-red-100 text-red-700 hover:bg-red-100 uppercase text-sm px-3 py-1"
+                  }
+                >
+                  {runResult.overallStatus}
+                </Badge>
+                <Button
+                  onClick={() => setModalOpen(false)}
+                  className="bg-black text-white hover:bg-gray-800 cursor-pointer text-xs"
+                >
+                  ✕ Close Fullscreen
+                </Button>
+              </div>
             </DialogHeader>
 
-            {/* Split Screen Layout */}
+            {/* Split Screen Workspace Area */}
             <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 py-4 overflow-hidden flex-1">
               {/* Step Navigation Sidebar */}
-              <div className="lg:col-span-4 flex flex-col space-y-2 overflow-y-auto pr-2 border-r">
+              <div className="lg:col-span-3 flex flex-col space-y-2 overflow-y-auto pr-2 border-r border-gray-200">
                 <h4 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">
-                  Test Execution Steps
+                  Captured Steps ({runResult.steps.length})
                 </h4>
 
                 {runResult.steps.map((step, idx) => {
@@ -645,15 +655,15 @@ export default function ProjectWorkspacePage({
                 })}
               </div>
 
-              {/* Large Image Screenshot Viewer */}
-              <div className="lg:col-span-8 flex flex-col bg-slate-900 rounded-lg p-4 text-white overflow-hidden border border-slate-800 shadow-inner">
+              {/* Ultra Wide Screenshot Inspector */}
+              <div className="lg:col-span-9 flex flex-col bg-slate-950 rounded-xl p-4 text-white overflow-hidden border border-slate-800 shadow-2xl">
                 <div className="flex items-center justify-between pb-3 border-b border-slate-800 shrink-0">
                   <div className="flex items-center gap-2">
                     <span className="relative flex h-2.5 w-2.5">
                       <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
                       <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-emerald-500"></span>
                     </span>
-                    <span className="font-semibold text-xs text-slate-200">
+                    <span className="font-semibold text-sm text-slate-200">
                       Step #{runResult.steps[activeStepIndex]?.step}:{" "}
                       {runResult.steps[activeStepIndex]?.title}
                     </span>
@@ -664,38 +674,29 @@ export default function ProjectWorkspacePage({
                       size="sm"
                       variant="ghost"
                       onClick={() => window.open(runResult.targetUrl!, "_blank")}
-                      className="text-[11px] text-emerald-400 hover:text-emerald-300 p-0 h-auto cursor-pointer"
+                      className="text-xs text-emerald-400 hover:text-emerald-300 p-0 h-auto cursor-pointer"
                     >
                       Open Target URL ↗
                     </Button>
                   )}
                 </div>
 
-                <div className="flex-1 flex items-center justify-center overflow-auto mt-3 rounded border border-slate-800 bg-slate-950 p-2">
+                <div className="flex-1 flex items-center justify-center overflow-auto mt-3 rounded-lg border border-slate-800/80 bg-black/40 p-2">
                   {runResult.steps[activeStepIndex]?.screenshot ? (
                     /* eslint-disable-next-line @next/next/no-img-element */
                     <img
                       src={runResult.steps[activeStepIndex].screenshot!}
                       alt={`Step ${runResult.steps[activeStepIndex].step} Screenshot`}
-                      className="max-w-full max-h-full object-contain rounded shadow-lg"
+                      className="max-w-full max-h-full object-contain rounded shadow-2xl border border-slate-800"
                     />
                   ) : (
                     <div className="text-center p-8 text-slate-500 text-xs">
-                      <p className="text-xl mb-2">🖼️</p>
+                      <p className="text-2xl mb-2">🖼️</p>
                       No screenshot captured for this step.
                     </div>
                   )}
                 </div>
               </div>
-            </div>
-
-            <div className="flex justify-end pt-3 border-t shrink-0">
-              <Button
-                onClick={() => setModalOpen(false)}
-                className="bg-black text-white hover:bg-gray-800 cursor-pointer"
-              >
-                Close View
-              </Button>
             </div>
           </DialogContent>
         </Dialog>
