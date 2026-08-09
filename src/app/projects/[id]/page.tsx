@@ -78,17 +78,8 @@ export default function ProjectWorkspacePage({
   const [modalOpen, setModalOpen] = useState(false);
   const [runResult, setRunResult] = useState<TestRunResult | null>(null);
 
-  // Execution Mode State
+  // Execution Mode State - Headed enabled by default or selectable freely
   const [isHeaded, setIsHeaded] = useState(false);
-
-  // Check if app is deployed on Vercel
-  const [isDeployed, setIsDeployed] = useState(false);
-
-  useEffect(() => {
-    if (typeof window !== "undefined") {
-      setIsDeployed(window.location.hostname.includes("vercel.app"));
-    }
-  }, []);
 
   // Workspace Test Cases
   const [tests, setTests] = useState<TestItem[]>([]);
@@ -260,8 +251,7 @@ export default function ProjectWorkspacePage({
 
     setLoading(true);
     const startTime = performance.now();
-    const effectiveHeaded = isDeployed ? false : isHeaded;
-    const mode: "headed" | "headless" = effectiveHeaded ? "headed" : "headless";
+    const mode: "headed" | "headless" = isHeaded ? "headed" : "headless";
 
     let stepsEvaluated: TestStepResult[] = [];
     let isPassed = true;
@@ -278,7 +268,7 @@ export default function ProjectWorkspacePage({
           url: testItem.url,
           steps: testItem.steps || [],
           expected_status: testItem.expected_status || 200,
-          headless: !effectiveHeaded,
+          headless: !isHeaded, // Directly passes false when isHeaded is active
         }),
       });
 
@@ -389,13 +379,13 @@ export default function ProjectWorkspacePage({
             </div>
 
             <div className="flex flex-wrap items-center gap-3">
-              {/* Mode Toggle */}
+              {/* Fully Enabled Mode Toggle */}
               <div className="flex items-center bg-gray-100 p-1 rounded-lg border border-gray-200">
                 <button
                   type="button"
                   onClick={() => setIsHeaded(false)}
                   className={`px-3 py-1.5 text-xs font-semibold rounded-md transition-all cursor-pointer ${
-                    !isHeaded || isDeployed
+                    !isHeaded
                       ? "bg-white text-gray-900 shadow-sm"
                       : "text-gray-500 hover:text-gray-900"
                   }`}
@@ -404,22 +394,15 @@ export default function ProjectWorkspacePage({
                 </button>
                 <button
                   type="button"
-                  disabled={isDeployed}
-                  onClick={() => !isDeployed && setIsHeaded(true)}
-                  title={
-                    isDeployed
-                      ? "Headed UI mode is only available on localhost"
-                      : "Launch browser GUI while running tests"
-                  }
-                  className={`px-3 py-1.5 text-xs font-semibold rounded-md transition-all ${
-                    isDeployed
-                      ? "opacity-50 cursor-not-allowed text-gray-400"
-                      : isHeaded
-                      ? "bg-white text-gray-900 shadow-sm cursor-pointer"
-                      : "text-gray-500 hover:text-gray-900 cursor-pointer"
+                  onClick={() => setIsHeaded(true)}
+                  title="Launch browser GUI while running tests"
+                  className={`px-3 py-1.5 text-xs font-semibold rounded-md transition-all cursor-pointer ${
+                    isHeaded
+                      ? "bg-white text-gray-900 shadow-sm"
+                      : "text-gray-500 hover:text-gray-900"
                   }`}
                 >
-                  🖥️ Headed (Live UI) {isDeployed && "(Localhost only)"}
+                  🖥️ Headed (Live UI)
                 </button>
               </div>
 

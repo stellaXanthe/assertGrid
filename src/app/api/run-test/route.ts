@@ -6,12 +6,8 @@ export async function POST(req: Request) {
     const body = await req.json();
     const { method, url, steps, headless, type } = body;
 
-    // Detect if running on Vercel or in production mode
-    const isProduction =
-      process.env.VERCEL || process.env.NODE_ENV === "production";
-
-    // Vercel serverless environments must run headless
-    const runHeadless = isProduction ? true : (headless ?? true);
+    // Use requested headless setting directly (defaulting to false if user requested Headed mode)
+    const runHeadless = typeof headless === "boolean" ? headless : true;
 
     // -------------------------------------------------------------
     // 1. Direct API Test Execution (if type === 'api' or steps empty)
@@ -59,18 +55,23 @@ export async function POST(req: Request) {
     // -------------------------------------------------------------
     let browser;
     try {
+      // Launch browser with user's preferred mode
       browser = await chromium.launch({
         headless: runHeadless,
+        args: runHeadless ? [] : ["--no-sandbox", "--disable-setuid-sandbox"],
       });
     } catch (launchErr: unknown) {
-      const msg =
-        launchErr instanceof Error ? launchErr.message : String(launchErr);
-      return NextResponse.json(
-        {
-          error: `Browser launch failed: ${msg}. Note: Headed mode is only supported in local development environments.`,
-        },
-        { status: 500 }
-      );
+      // Fallback: If headed launch fails due to missing display server (e.g. cloud Linux container), retry headless gracefully
+      try {
+        browser = await chromium.launch({ headless: true });
+      } catch (fallbackErr: unknown) {
+        const msg =
+          fallbackErr instanceof Error ? fallbackErr.message : String(fallbackErr);
+        return NextResponse.json(
+          { error: `Browser launch failed: ${msg}` },
+          { status: 500 }
+        );
+      }
     }
 
     const context = await browser.newContext();
