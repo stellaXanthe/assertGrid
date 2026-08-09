@@ -5,30 +5,42 @@ import { chromium as playwrightChromium } from "playwright-core";
 export const maxDuration = 30;
 export const dynamic = "force-dynamic";
 
+// Remote binary fallback for Vercel Serverless
+const REMOTE_CHROMIUM_URL =
+  "https://github.com/Sparticuz/chromium/releases/download/v123.0.0/chromium-v123.0.0-pack.tar";
+
 export async function POST(req: Request) {
   let browser = null;
 
   try {
-    const { steps, headless = true } = await req.json();
+    const body = await req.json().catch(() => ({}));
+    const steps = Array.isArray(body.steps) ? body.steps : [];
+
+    if (steps.length === 0) {
+      steps.push({
+        action: "navigate",
+        value: body.url || "https://www.saucedemo.com/",
+        title: "Default Navigation",
+      });
+    }
 
     const isVercel = process.env.VERCEL === "1";
 
     if (isVercel) {
-      // Vercel Serverless Environment
-      const executablePath = await chromium.executablePath();
+      // Clean executable path retrieval with fallback URL
+      const executablePath = await chromium.executablePath(REMOTE_CHROMIUM_URL);
+
       browser = await playwrightChromium.launch({
         args: chromium.args,
         executablePath: executablePath,
         headless: true,
       });
     } else {
-      // Local Development Environment
       browser = await playwrightChromium.launch({
         headless: true,
       });
     }
 
-    // Pass viewport options when creating context
     const context = await browser.newContext({
       viewport: { width: 1280, height: 720 },
     });
@@ -45,7 +57,8 @@ export async function POST(req: Request) {
         const action = (step.action || step.type || "").toLowerCase();
 
         if (action === "goto" || action === "navigate") {
-          const res = await page.goto(step.value || step.url, {
+          const targetUrl = step.value || step.url || "https://www.saucedemo.com/";
+          const res = await page.goto(targetUrl, {
             waitUntil: "domcontentloaded",
             timeout: 15000,
           });
@@ -63,14 +76,13 @@ export async function POST(req: Request) {
           }
         }
 
-        // Capture step screenshot
         const imageBuffer = await page.screenshot({ type: "png" });
         const stepBase64 = `data:image/png;base64,${imageBuffer.toString("base64")}`;
 
         evaluatedSteps.push({
           step: i + 1,
-          title: step.title || `${step.action} ${step.selector || ""}`,
-          action: step.action,
+          title: step.title || `${step.action || "action"} ${step.selector || ""}`,
+          action: step.action || "navigate",
           selector: step.selector,
           value: step.value,
           statusReturned: statusCode,
@@ -91,7 +103,7 @@ export async function POST(req: Request) {
         evaluatedSteps.push({
           step: i + 1,
           title: step.title || `Step #${i + 1}`,
-          action: step.action,
+          action: step.action || "error",
           selector: step.selector,
           value: step.value,
           statusReturned: 500,
@@ -109,10 +121,12 @@ export async function POST(req: Request) {
       steps: evaluatedSteps,
     });
   } catch (error: any) {
-    if (browser) await browser.close();
+    if (browser) {
+      await (browser as any).close().catch(() => {});
+    }
     console.error("Vercel Execution Error:", error);
     return NextResponse.json(
-      { error: error.message || "Execution engine failure" },
+      { error: error?.message || "Execution engine failure" },
       { status: 500 }
     );
   }
