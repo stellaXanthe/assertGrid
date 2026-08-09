@@ -2,9 +2,15 @@
 
 import { useState } from "react";
 import { useChat } from "@ai-sdk/react";
+import { DefaultChatTransport } from "ai";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  Card,
+  CardContent,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
 
 interface AiAssistantProps {
   projectId?: string;
@@ -15,14 +21,15 @@ export function AiAssistant({ projectId, currentContext }: AiAssistantProps) {
   const [isOpen, setIsOpen] = useState(false);
   const [input, setInput] = useState("");
 
-  // Clean useChat hook without transport/fetch type mismatch issues
-  const { messages, sendMessage, status } = useChat({
-    api: "/api/agent",
-    body: {
-      projectId,
-      context: currentContext,
-    },
-  } as any);
+  const { messages, sendMessage, status, error } = useChat({
+    transport: new DefaultChatTransport({
+      api: "/api/agent",
+      body: {
+        projectId,
+        context: currentContext,
+      },
+    }),
+  });
 
   const isLoading = status === "submitted" || status === "streaming";
 
@@ -34,36 +41,20 @@ export function AiAssistant({ projectId, currentContext }: AiAssistantProps) {
 
   const handleQuickPrompt = (promptText: string) => {
     if (isLoading) return;
-    sendMessage(
-      {
-        role: "user",
-        parts: [{ type: "text", text: promptText }],
-      },
-      {
-        body: {
-          projectId,
-          context: currentContext,
-        },
-      }
-    );
+    sendMessage({
+      role: "user",
+      parts: [{ type: "text", text: promptText }],
+    });
   };
 
   const onSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!input.trim() || isLoading) return;
 
-    sendMessage(
-      {
-        role: "user",
-        parts: [{ type: "text", text: input.trim() }],
-      },
-      {
-        body: {
-          projectId,
-          context: currentContext,
-        },
-      }
-    );
+    sendMessage({
+      role: "user",
+      parts: [{ type: "text", text: input.trim() }],
+    });
     setInput("");
   };
 
@@ -93,7 +84,7 @@ export function AiAssistant({ projectId, currentContext }: AiAssistantProps) {
           </CardHeader>
 
           <CardContent className="flex-1 overflow-y-auto p-4 space-y-3 text-xs">
-            {messages.map((m: any) => (
+            {messages.map((m) => (
               <div
                 key={m.id}
                 className={`p-3 rounded-lg ${
@@ -112,35 +103,48 @@ export function AiAssistant({ projectId, currentContext }: AiAssistantProps) {
                       return <span key={index}>{part.text}</span>;
                     }
 
-                    if (part.type === "tool-invocation") {
-                      const toolInvocation = part.toolInvocation;
-                      const hasResult = toolInvocation && "result" in toolInvocation;
+                    // v5 UI message stream tool parts are named "tool-<toolName>"
+                    if (part.type === "tool-createTestCase") {
+                      const isDone =
+                        part.state === "output-available" ||
+                        part.state === "output-error";
 
-                      if (toolInvocation?.toolName === "createTestCase") {
-                        return (
-                          <div
-                            key={toolInvocation.toolCallId || index}
-                            className="mt-2 p-2 rounded bg-slate-50 border border-slate-200 text-[11px] font-mono"
-                          >
-                            {!hasResult ? (
-                              <div className="flex items-center gap-2 text-amber-600">
-                                <span className="animate-spin">⚙️</span>
-                                Creating test case in Supabase...
-                              </div>
-                            ) : (
-                              <div className="text-emerald-600">
-                                ✓ Test Case Created! (ID: {toolInvocation.result?.testCaseId})
-                              </div>
-                            )}
-                          </div>
-                        );
-                      }
+                      return (
+                        <div
+                          key={part.toolCallId || index}
+                          className="mt-2 p-2 rounded bg-slate-50 border border-slate-200 text-[11px] font-mono"
+                        >
+                          {!isDone ? (
+                            <div className="flex items-center gap-2 text-amber-600">
+                              <span className="animate-spin">⚙️</span>
+                              Creating test case in Supabase...
+                            </div>
+                          ) : part.state === "output-error" ? (
+                            <div className="text-red-600">
+                              ✕ Failed to create test case:{" "}
+                              {String(part.errorText)}
+                            </div>
+                          ) : (
+                            <div className="text-emerald-600">
+                              ✓ Test Case Created! (ID:{" "}
+                              {part.output?.testCaseId})
+                            </div>
+                          )}
+                        </div>
+                      );
                     }
+
                     return null;
                   })}
                 </div>
               </div>
             ))}
+
+            {error && (
+              <div className="bg-red-50 border border-red-200 text-red-700 p-2 rounded text-[11px]">
+                Error: {error.message}
+              </div>
+            )}
 
             {isLoading && (
               <div className="bg-gray-50 p-2.5 rounded text-gray-400 italic">
@@ -148,8 +152,7 @@ export function AiAssistant({ projectId, currentContext }: AiAssistantProps) {
               </div>
             )}
 
-            {/* Quick Suggestions */}
-            {messages.length <= 1 && !isLoading && (
+            {messages.length === 0 && !isLoading && (
               <div className="pt-2 space-y-1.5">
                 <p className="text-[10px] font-semibold text-gray-400 uppercase">
                   Suggested Questions
@@ -167,7 +170,10 @@ export function AiAssistant({ projectId, currentContext }: AiAssistantProps) {
             )}
           </CardContent>
 
-          <form onSubmit={onSubmit} className="p-3 border-t flex gap-2 bg-gray-50">
+          <form
+            onSubmit={onSubmit}
+            className="p-3 border-t flex gap-2 bg-gray-50"
+          >
             <Input
               type="text"
               value={input}

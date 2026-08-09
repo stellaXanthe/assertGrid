@@ -12,6 +12,7 @@ import Link from "next/link";
 interface DBSchemaStep {
   type?: string;
   name?: string;
+  category?: "action" | "assertion";
   action?: string;
   url?: string;
   selector?: string;
@@ -23,6 +24,18 @@ interface DBSchemaStep {
   extract?: Record<string, string>;
 }
 
+const ASSERTION_TYPES = new Set([
+  "toBeVisible",
+  "toBeHidden",
+  "toHaveText",
+  "toContainText",
+  "toHaveValue",
+  "toHaveAttribute",
+  "toBeEnabled",
+  "toBeDisabled",
+  "toHaveURL",
+]);
+
 export default function EditTestPage({
   params,
 }: {
@@ -31,11 +44,10 @@ export default function EditTestPage({
   const router = useRouter();
   const supabase = createClient();
 
-  // Unwrap asynchronous params for Next.js 15
   const { id: projectId, testId } = use(params);
 
   const [name, setName] = useState("");
-  const [testType, setTestType] = useState<string>("api"); // Store original DB test type
+  const [testType, setTestType] = useState<string>("api");
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [steps, setSteps] = useState<TestStep[]>([]);
@@ -56,15 +68,20 @@ export default function EditTestPage({
       }
 
       setName(data.name || "");
-      setTestType(data.type || "api"); // Preserve existing valid type from DB
+      setTestType(data.type || "api");
 
       if (Array.isArray(data.steps)) {
         const mappedSteps: TestStep[] = data.steps.map((s: DBSchemaStep) => {
           if (s.type === "browser") {
+            const action = s.action || "goto";
+            const category =
+              s.category || (ASSERTION_TYPES.has(action) ? "assertion" : "action");
+
             return {
               name: s.name || "",
               type: "browser",
-              action: s.action || "goto",
+              category,
+              action,
               url: s.url || "",
               selector: s.selector || "",
               value: s.value || "",
@@ -86,6 +103,7 @@ export default function EditTestPage({
           return {
             name: s.name || "",
             type: "api",
+            category: "action",
             method: s.method || "GET",
             url: s.url || "",
             headers: JSON.stringify(s.headers || {}, null, 2),
@@ -119,6 +137,7 @@ export default function EditTestPage({
           return {
             name: s.name,
             type: "browser",
+            category: s.category || "action",
             action: s.action,
             url: s.url,
             selector: s.selector,
@@ -162,7 +181,6 @@ export default function EditTestPage({
         };
       });
 
-      // Pass the preserved testType instead of re-calculating a string that violates DB constraints
       const { error } = await supabase
         .from("test_cases")
         .update({
