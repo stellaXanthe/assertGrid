@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, use } from "react";
+import React, { useState } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { Button } from "@/components/ui/button";
@@ -12,28 +12,31 @@ import Link from "next/link";
 export default function NewTestPage({
   params,
 }: {
-  params: Promise<{ id: string }>;
+  params: Promise<{ id: string }> | { id: string };
 }) {
   const router = useRouter();
   const supabase = createClient();
-  const { id: projectId } = use(params);
+
+  const resolvedParams = params instanceof Promise ? React.use(params) : params;
+  const projectId = resolvedParams.id;
 
   const [name, setName] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [steps, setSteps] = useState<TestStep[]>([
     {
+      id: "step-1",
       name: "Step 1: Open Home Page",
-      type: "browser",
-      category: "action",
+      category: "browser",
+      mode: "action",
       action: "goto",
-      url: "https://example.com/login",
+      targetUrl: "https://example.com/login",
       selector: "",
       value: "",
       method: "GET",
+      apiUrl: "",
       headers: "{}",
       body: "{}",
-      expected_status: 200,
-      extractRules: [],
+      expectedStatus: 200,
     },
   ]);
 
@@ -42,20 +45,22 @@ export default function NewTestPage({
     setSubmitting(true);
 
     try {
-      // Determine overall test type (browser if at least one browser step exists)
-      const hasBrowser = steps.some((s) => s.type === "browser");
+      const hasBrowser = steps.some((s) => s.category === "browser");
       const testType = hasBrowser ? "browser" : "api";
 
       const formattedSteps = steps.map((s) => {
-        if (s.type === "browser") {
+        if (s.category === "browser") {
           return {
             name: s.name,
             type: "browser",
-            category: s.category || "action",
+            category: s.mode || "action",
             action: s.action,
-            url: s.url,
+            url: s.targetUrl,
             selector: s.selector,
             value: s.value,
+            assertionType: s.assertionType,
+            attributeName: s.attributeName,
+            expectedValue: s.expectedValue,
           };
         }
 
@@ -76,22 +81,14 @@ export default function NewTestPage({
           }
         }
 
-        const extractObject: Record<string, string> = {};
-        (s.extractRules || []).forEach((rule) => {
-          if (rule.varName.trim() && rule.jsonPath.trim()) {
-            extractObject[rule.varName.trim()] = rule.jsonPath.trim();
-          }
-        });
-
         return {
           name: s.name,
           type: "api",
           method: s.method,
-          url: s.url,
+          url: s.apiUrl,
           headers: parsedHeaders,
           body: parsedBody,
-          expected_status: s.expected_status,
-          extract: extractObject,
+          expected_status: s.expectedStatus,
         };
       });
 
@@ -147,6 +144,7 @@ export default function NewTestPage({
                 />
               </div>
 
+              {/* Render step builder directly within form */}
               <StepBuilder steps={steps} onChange={setSteps} />
 
               <div className="flex justify-end gap-3 pt-4 border-t">
