@@ -1,36 +1,36 @@
 "use client";
 
 import React, { useState } from "react";
-import { useParams, useRouter } from "next/navigation";
+import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import Link from "next/link";
-import { ArrowLeft, TestTube } from "lucide-react";
-import { StepBuilder } from "@/components/test-builder/StepBuilder";
+import { ArrowLeft, FolderPlus } from "lucide-react";
 
-export default function CreateTestPage() {
-  const params = useParams();
+export default function CreateProjectPage() {
   const router = useRouter();
   const supabase = createClient();
-  const projectId = params.id as string;
 
-  const [title, setTitle] = useState("");
+  const [name, setName] = useState("");
   const [description, setDescription] = useState("");
-  const [steps, setSteps] = useState<any[]>([]);
+  const [baseUrl, setBaseUrl] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  const formatUrl = (url: string) => {
+    const trimmed = url.trim();
+    if (!trimmed) return null;
+    if (!/^https?:\/\//i.test(trimmed)) {
+      return `https://${trimmed}`;
+    }
+    return trimmed;
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-
-    if (!title.trim()) {
-      setError("Test title is required.");
-      return;
-    }
-
     setLoading(true);
     setError(null);
 
@@ -39,13 +39,15 @@ export default function CreateTestPage() {
         data: { user },
       } = await supabase.auth.getUser();
 
+      const sanitizedBaseUrl = formatUrl(baseUrl);
+      const sanitizedDescription = description.trim() || null;
+
       const { data, error: insertError } = await supabase
-        .from("tests")
+        .from("projects")
         .insert({
-          title: title.trim(),
-          description: description.trim() || null,
-          project_id: projectId,
-          steps: steps,
+          name: name.trim(),
+          description: sanitizedDescription,
+          base_url: sanitizedBaseUrl,
           user_id: user?.id || null,
         })
         .select()
@@ -53,9 +55,9 @@ export default function CreateTestPage() {
 
       if (insertError) throw insertError;
 
-      router.push(`/projects/${projectId}`);
+      router.push(`/projects/${data.id}`);
     } catch (err: any) {
-      setError(err.message || "Failed to create test case");
+      setError(err.message || "Failed to create project");
     } finally {
       setLoading(false);
     }
@@ -63,28 +65,28 @@ export default function CreateTestPage() {
 
   return (
     <div className="min-h-screen bg-gray-50/50 p-8 flex flex-col items-center justify-center">
-      <div className="w-full max-w-2xl mb-4">
+      <div className="w-full max-w-xl mb-4">
         <Link
-          href={`/projects/${projectId}`}
+          href="/dashboard"
           className="inline-flex items-center text-sm font-medium text-gray-500 hover:text-gray-900 transition"
         >
           <ArrowLeft className="w-4 h-4 mr-1.5" />
-          Back to Project
+          Back to Dashboard
         </Link>
       </div>
 
-      <Card className="w-full max-w-2xl shadow-sm border border-gray-200">
+      <Card className="w-full max-w-xl shadow-sm border border-gray-200">
         <CardHeader>
           <div className="flex items-center gap-3">
-            <div className="p-2.5 bg-purple-50 text-purple-600 rounded-lg border border-purple-100">
-              <TestTube className="w-5 h-5" />
+            <div className="p-2.5 bg-blue-50 text-blue-600 rounded-lg border border-blue-100">
+              <FolderPlus className="w-5 h-5" />
             </div>
             <div>
               <CardTitle className="text-xl font-bold text-gray-900">
-                Create New Test
+                Create New Project
               </CardTitle>
               <CardDescription className="text-xs text-gray-500 mt-0.5">
-                Define the steps and assertions for your test flow.
+                Set up a new workspace to organize your test flows.
               </CardDescription>
             </div>
           </div>
@@ -100,14 +102,27 @@ export default function CreateTestPage() {
           <form onSubmit={handleSubmit} className="space-y-5">
             <div>
               <label className="block text-xs font-semibold uppercase tracking-wider text-gray-600 mb-1.5">
-                Test Title <span className="text-red-500">*</span>
+                Project Name <span className="text-red-500">*</span>
               </label>
               <Input
                 type="text"
-                value={title}
-                onChange={(e) => setTitle(e.target.value)}
-                placeholder="e.g. Verify User Login Flow"
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                placeholder="e.g. E-Commerce Web App"
                 required
+                className="bg-gray-50/50"
+              />
+            </div>
+
+            <div>
+              <label className="block text-xs font-semibold uppercase tracking-wider text-gray-600 mb-1.5">
+                Default Base URL (Optional)
+              </label>
+              <Input
+                type="text"
+                value={baseUrl}
+                onChange={(e) => setBaseUrl(e.target.value)}
+                placeholder="https://staging.example.com"
                 className="bg-gray-50/50"
               />
             </div>
@@ -119,21 +134,13 @@ export default function CreateTestPage() {
               <Textarea
                 value={description}
                 onChange={(e) => setDescription(e.target.value)}
-                placeholder="Brief summary of what this test verifies..."
-                className="bg-gray-50/50 min-h-[80px]"
+                placeholder="Brief summary of what this project tests..."
+                className="bg-gray-50/50 min-h-[100px]"
               />
             </div>
 
-            {/* Step Builder Component */}
-            <div className="pt-2">
-              <label className="block text-xs font-semibold uppercase tracking-wider text-gray-600 mb-1.5">
-                Test Steps
-              </label>
-              <StepBuilder steps={steps} onChange={setSteps} />
-            </div>
-
             <div className="flex items-center justify-end gap-3 pt-4 border-t">
-              <Link href={`/projects/${projectId}`}>
+              <Link href="/dashboard">
                 <Button type="button" variant="outline">
                   Cancel
                 </Button>
@@ -143,7 +150,7 @@ export default function CreateTestPage() {
                 disabled={loading}
                 className="bg-black hover:bg-gray-800 text-white font-semibold"
               >
-                {loading ? "Saving Test..." : "Save Test"}
+                {loading ? "Creating..." : "Create Project"}
               </Button>
             </div>
           </form>
