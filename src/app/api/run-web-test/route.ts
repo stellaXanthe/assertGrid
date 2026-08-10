@@ -1,12 +1,15 @@
-
 import { NextResponse } from "next/server";
-import { chromium, type Page } from "playwright";
+import chromium from "@sparticuz/chromium";
+import { chromium as playwrightChromium, type Page } from "playwright-core";
+
 export const maxDuration = 60;
+
 async function runAction(page: Page, step: any) {
   const selector = step.selector;
   if (selector && step.action !== "goto") {
     await page.waitForSelector(selector, { timeout: 8000, state: "attached" });
   }
+
   switch (step.action) {
     case "goto":
       await page.goto(step.url, { waitUntil: "domcontentloaded", timeout: 15000 });
@@ -48,9 +51,11 @@ async function runAction(page: Page, step: any) {
       throw new Error(`Unsupported action: ${step.action}`);
   }
 }
+
 async function runAssertion(page: Page, step: any) {
   const selector = step.selector;
   const locator = selector ? page.locator(selector).first() : null;
+
   switch (step.assertionType) {
     case "toBeVisible": {
       if (!locator) throw new Error("Selector is required for toBeVisible");
@@ -95,7 +100,9 @@ async function runAssertion(page: Page, step: any) {
       await locator.waitFor({ state: "attached", timeout: 8000 });
       const attrValue = await locator.getAttribute(step.attributeName || "");
       if (attrValue !== (step.value || "")) {
-        throw new Error(`Expected attribute "${step.attributeName}" to be "${step.value}" but got "${attrValue}"`);
+        throw new Error(
+          `Expected attribute "${step.attributeName}" to be "${step.value}" but got "${attrValue}"`
+        );
       }
       break;
     }
@@ -122,29 +129,40 @@ async function runAssertion(page: Page, step: any) {
       throw new Error(`Unsupported assertion type: ${step.assertionType}`);
   }
 }
+
 export async function POST(request: Request) {
   let browser;
   try {
     const body = await request.json();
     const steps = body.steps || (body.test && body.test.steps) || [];
     const mode: "headless" | "headed" = body.mode === "headed" ? "headed" : "headless";
+
     if (!Array.isArray(steps) || steps.length === 0) {
       return NextResponse.json({ error: "No executable web test steps provided" }, { status: 400 });
     }
-    // A real GUI browser window can't be streamed back over HTTP, so both modes
-    // run headless server-side. "headed" additionally captures a screenshot after
-    // every step so the UI can render a frame-by-frame view of what happened.
-    browser = await chromium.launch({ headless: true });
+
+    // Determine environment to dynamically set binary launch options
+    const isLocal = process.env.NODE_ENV === "development";
+
+   browser = await playwrightChromium.launch({
+      args: isLocal ? [] : chromium.args,
+      executablePath: isLocal ? undefined : await chromium.executablePath(),
+      headless: true,
+    });
+
     const context = await browser.newContext({ viewport: { width: 1280, height: 800 } });
     const page = await context.newPage();
+
     const results = [];
     let totalLatency = 0;
     let overallSuccess = true;
     let targetUrl = "";
+
     for (const step of steps) {
       const startTime = Date.now();
       let passed = true;
       let error: string | null = null;
+
       try {
         if (step.mode === "assertion") {
           await runAssertion(page, step);
@@ -157,8 +175,10 @@ export async function POST(request: Request) {
         overallSuccess = false;
         error = err instanceof Error ? err.message : "Step execution failed";
       }
+
       const latency = Date.now() - startTime;
       totalLatency += latency;
+
       let screenshot: string | null = null;
       try {
         const buffer = await page.screenshot({ type: "jpeg", quality: 60 });
@@ -166,6 +186,7 @@ export async function POST(request: Request) {
       } catch {
         screenshot = null;
       }
+
       results.push({
         stepName: step.name || "Unnamed Web Step",
         action: step.mode === "assertion" ? step.assertionType : step.action,
@@ -178,7 +199,9 @@ export async function POST(request: Request) {
         screenshot,
       });
     }
+
     await browser.close();
+
     return NextResponse.json({
       success: overallSuccess,
       totalLatency,
