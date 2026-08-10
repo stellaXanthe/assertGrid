@@ -1,48 +1,15 @@
-import { NextResponse } from "next/server";
-import { createClient } from "@/lib/supabase/client";
-
-export async function POST(
-  request: Request,
-  { params }: { params: { id: string } }
-) {
-  const supabase = createClient();
-  const projectId = params.id;
-
-  try {
-    const body = await request.json();
-    const { status, duration_ms, latency } = body;
-
-    const runPayload = {
-      project_id: projectId,
-      status: status || "passed",
-      duration_ms: duration_ms ?? latency ?? 0,
-    };
-
-    const { data, error } = await supabase
-      .from("test_runs")
-      .insert([runPayload])
-      .select();
-
-    if (error) {
-      return NextResponse.json({ error: error.message }, { status: 500 });
-    }
-
-    return NextResponse.json({ success: true, data });
-  } catch (err: unknown) {
-    const errorMsg = err instanceof Error ? err.message : "Internal Server Error";
-    return NextResponse.json({ error: errorMsg }, { status: 500 });
-  }
-}
+import { NextRequest, NextResponse } from "next/server";
+import { createClient } from "@/lib/supabase/server";
 
 export async function GET(
-  request: Request,
-  { params }: { params: { id: string } }
+  request: NextRequest,
+  context: { params: Promise<{ id: string }> }
 ) {
-  const supabase = createClient();
-  const projectId = params.id;
-
   try {
-    const { data, error } = await supabase
+    const { id: projectId } = await context.params;
+    const supabase = await createClient();
+
+    const { data: runs, error } = await supabase
       .from("test_runs")
       .select("*")
       .eq("project_id", projectId)
@@ -52,9 +19,10 @@ export async function GET(
       return NextResponse.json({ error: error.message }, { status: 500 });
     }
 
-    return NextResponse.json({ runs: data });
+    return NextResponse.json({ runs: runs || [] });
   } catch (err: unknown) {
-    const errorMsg = err instanceof Error ? err.message : "Internal Server Error";
-    return NextResponse.json({ error: errorMsg }, { status: 500 });
+    const errorMessage =
+      err instanceof Error ? err.message : "Failed to fetch runs";
+    return NextResponse.json({ error: errorMessage }, { status: 500 });
   }
 }

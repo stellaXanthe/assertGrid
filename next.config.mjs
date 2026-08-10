@@ -1,11 +1,7 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
-  experimental: {
-    serverComponentsExternalPackages: ["playwright-core", "@sparticuz/chromium"],
-    outputFileTracingIncludes: {
-      "/api/**/*": ["./node_modules/playwright-core/**"],
-    },
-  },
+  serverExternalPackages: ["@sparticuz/chromium", "playwright-core"],
+  // Keep any other config options you had previously below:
 };
 
 export default nextConfig;
