@@ -55,23 +55,27 @@ export default function DashboardPage() {
         .order("created_at", { ascending: false });
 
       // 3. Fetch All Runs to calculate per-project metrics dynamically
-      const { data: runData } = await supabase.from("runs").select("*");
+      const { data: runData, error: runError } = await supabase
+        .from("test_runs")
+        .select("*");
+
+      if (runError) {
+        console.error("Failed to load test_runs:", runError);
+      }
 
       if (projData) {
         const enrichedProjects = projData.map((proj) => {
           const projectRuns =
-            runData?.filter(
-              (r) => r.project_id === proj.id || r.project_id === proj.name
-            ) || [];
+            runData?.filter((r) => r.project_id === proj.id) || [];
 
           const runsCount = projectRuns.length;
           const passedCount = projectRuns.filter(
-            (r) => r.status?.toLowerCase() === "passed"
+            (r) => String(r.status).toLowerCase() === "passed"
           ).length;
           const passRate =
             runsCount > 0 ? Math.round((passedCount / runsCount) * 100) : 0;
           const totalLat = projectRuns.reduce(
-            (acc, r) => acc + (r.duration_ms || r.latency || 0),
+            (acc, r) => acc + (Number(r.duration_ms) || 0),
             0
           );
           const avgLatency =

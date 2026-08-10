@@ -6,7 +6,7 @@ export async function GET() {
 
   try {
     const { data: runs, error: runsError } = await supabase
-      .from("runs")
+      .from("test_runs")
       .select("*");
 
     if (runsError) {

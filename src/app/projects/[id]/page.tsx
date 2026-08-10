@@ -1,11 +1,12 @@
 "use client";
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useMemo } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { AiAssistant } from "@/components/AiAssistant";
 import { TestExecutionView } from "@/components/TestExecutionView";
+
 export default function ProjectDetailsPage() {
   const params = useParams();
   const projectId = params?.id as string;
@@ -13,12 +14,14 @@ export default function ProjectDetailsPage() {
   const supabase = createClient();
   const [project, setProject] = useState<any>(null);
   const [tests, setTests] = useState<any[]>([]);
+  const [runs, setRuns] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [runningTestId, setRunningTestId] = useState<string | null>(null);
   const [isRunningAll, setIsRunningAll] = useState(false);
   const [selectedRunResult, setSelectedRunResult] = useState<any | null>(null);
   const [executionView, setExecutionView] = useState<any | null>(null);
   const [runMode, setRunMode] = useState<"headless" | "headed">("headless");
+
   const fetchProjectData = useCallback(async () => {
     if (!projectId) return;
     setLoading(true);
@@ -38,9 +41,60 @@ export default function ProjectDetailsPage() {
       setLoading(false);
     }
   }, [projectId, supabase]);
+
+  // Fetch this project's runs directly (canonical source for analytics)
+  const fetchRuns = useCallback(async () => {
+    if (!projectId) return;
+    try {
+      const { data, error } = await supabase
+        .from("test_runs")
+        .select("*")
+        .eq("project_id", projectId)
+        .order("created_at", { ascending: false });
+      if (error) throw error;
+      setRuns(data || []);
+    } catch (err) {
+      console.error("Error fetching project runs:", err);
+    }
+  }, [projectId, supabase]);
+
   useEffect(() => { fetchProjectData(); }, [fetchProjectData]);
+  useEffect(() => { fetchRuns(); }, [fetchRuns]);
+
+  // Live analytics for THIS project, recomputed whenever runs change
+  const analytics = useMemo(() => {
+    const total = runs.length;
+    const passed = runs.filter((r) => String(r.status).toLowerCase() === "passed").length;
+    const failed = total - passed;
+    const passRate = total > 0 ? Math.round((passed / total) * 100) : 0;
+    const totalLatency = runs.reduce((acc, r) => acc + (Number(r.duration_ms) || 0), 0);
+    const avgLatency = total > 0 ? Math.round(totalLatency / total) : 0;
+    return { total, passed, failed, passRate, avgLatency };
+  }, [runs]);
+
+  const recordRun = async (test: any, startedAt: Date, status: string, durationMs: number, results: any) => {
+    try {
+      const { error } = await supabase.from("test_runs").insert({
+        project_id: projectId,
+        test_case_id: test.id,
+        status,
+        started_at: startedAt.toISOString(),
+        finished_at: new Date().toISOString(),
+        duration_ms: durationMs,
+        results,
+      });
+      if (error) console.error("Failed to record run:", error);
+    } catch (err) {
+      console.error("Failed to record run:", err);
+    } finally {
+      // Refresh this project's analytics immediately
+      fetchRuns();
+    }
+  };
+
   const handleRunTest = async (test: any) => {
     setRunningTestId(test.id);
+    const startedAt = new Date();
     try {
       const stepsToRun =
         test.steps && Array.isArray(test.steps) && test.steps.length > 0
@@ -49,6 +103,7 @@ export default function ProjectDetailsPage() {
       const isWebTest =
         test.type === "web" ||
         stepsToRun.some((s: any) => s.type === "browser" || s.action || s.assertionType);
+
       if (isWebTest) {
         const response = await fetch("/api/run-web-test", {
           method: "POST",
@@ -58,6 +113,13 @@ export default function ProjectDetailsPage() {
         const data = await response.json();
         if (!response.ok) throw new Error(data.error || "Failed to run test.");
         setExecutionView({ ...data, testTitle: test.title || test.name || "Test Execution" });
+        await recordRun(
+          test,
+          startedAt,
+          data.success ? "passed" : "failed",
+          Number(data.totalLatency) || Date.now() - startedAt.getTime(),
+          data
+        );
       } else {
         const response = await fetch("/api/run-test", {
           method: "POST",
@@ -67,19 +129,35 @@ export default function ProjectDetailsPage() {
         const data = await response.json();
         if (!response.ok) throw new Error(data.error || "Failed to run test.");
         setSelectedRunResult({ testTitle: test.title || test.name || "Test Execution", ...data });
+        await recordRun(
+          test,
+          startedAt,
+          data.passed ? "passed" : "failed",
+          Date.now() - startedAt.getTime(),
+          data
+        );
       }
     } catch (err: unknown) {
+      await recordRun(
+        test,
+        startedAt,
+        "error",
+        Date.now() - startedAt.getTime(),
+        { error: err instanceof Error ? err.message : "Failed to run test." }
+      );
       alert(err instanceof Error ? err.message : "Failed to run test.");
     } finally {
       setRunningTestId(null);
     }
   };
+
   const handleRunAllTests = async () => {
     if (tests.length === 0) return;
     setIsRunningAll(true);
     for (const test of tests) await handleRunTest(test);
     setIsRunningAll(false);
   };
+
   const handleDeleteTest = async (testId: string) => {
     if (!confirm("Are you sure you want to delete this test case?")) return;
     try {
@@ -90,11 +168,14 @@ export default function ProjectDetailsPage() {
       alert(err instanceof Error ? err.message : "Failed to delete test case.");
     }
   };
+
   const handleResetExecutions = () => {
     setSelectedRunResult(null);
     setExecutionView(null);
     fetchProjectData();
+    fetchRuns();
   };
+
   if (loading) {
     return (
       <div className="flex items-center justify-center min-h-[400px]">
@@ -102,6 +183,7 @@ export default function ProjectDetailsPage() {
       </div>
     );
   }
+
   return (
     <div className="max-w-6xl mx-auto p-6 space-y-6 relative">
       <Card className="border shadow-sm">
@@ -145,6 +227,41 @@ export default function ProjectDetailsPage() {
           </div>
         </CardHeader>
       </Card>
+
+      {/* Project analytics — reflects live as soon as this page is opened / a run finishes */}
+      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+        <div className="bg-white p-5 rounded-2xl border border-slate-200/80 shadow-xs">
+          <span className="text-[10px] font-bold tracking-wider text-slate-400 uppercase">
+            Pass Rate
+          </span>
+          <p className="text-3xl font-extrabold text-emerald-500 mt-2">{analytics.passRate}%</p>
+          <p className="text-xs text-slate-400 mt-1">This project only</p>
+        </div>
+        <div className="bg-white p-5 rounded-2xl border border-slate-200/80 shadow-xs">
+          <span className="text-[10px] font-bold tracking-wider text-slate-400 uppercase">
+            Avg Latency
+          </span>
+          <p className="text-3xl font-extrabold text-blue-600 mt-2">{analytics.avgLatency} ms</p>
+          <p className="text-xs text-slate-400 mt-1">Average across runs</p>
+        </div>
+        <div className="bg-white p-5 rounded-2xl border border-slate-200/80 shadow-xs">
+          <span className="text-[10px] font-bold tracking-wider text-slate-400 uppercase">
+            Total Runs
+          </span>
+          <p className="text-3xl font-extrabold text-slate-900 mt-2">{analytics.total}</p>
+          <p className="text-xs text-slate-400 mt-1">Recorded executions</p>
+        </div>
+        <div className="bg-white p-5 rounded-2xl border border-slate-200/80 shadow-xs">
+          <span className="text-[10px] font-bold tracking-wider text-slate-400 uppercase">
+            Failed Runs
+          </span>
+          <p className={`text-3xl font-extrabold mt-2 ${analytics.failed > 0 ? "text-red-500" : "text-slate-900"}`}>
+            {analytics.failed}
+          </p>
+          <p className="text-xs text-slate-400 mt-1">Needs attention</p>
+        </div>
+      </div>
+
       <div className="space-y-4">
         <div className="flex justify-between items-center">
           <h2 className="text-lg font-semibold text-gray-800">API & Web Tests ({tests.length})</h2>
@@ -197,19 +314,19 @@ export default function ProjectDetailsPage() {
           <Card className="w-full max-w-xl bg-white p-6 rounded-lg shadow-xl relative space-y-4">
             <div className="flex justify-between items-center pb-3 border-b">
               <h3 className="font-bold text-lg text-gray-900">{selectedRunResult.testTitle}</h3>
-              <span className={`px-2.5 py-1 text-xs font-bold rounded-full ${selectedRunResult.success ? "bg-green-100 text-green-800" : "bg-red-100 text-red-800"}`}>
-                {selectedRunResult.success ? "PASSED" : "FAILED"}
+              <span className={`px-2.5 py-1 text-xs font-bold rounded-full ${selectedRunResult.success ?? selectedRunResult.passed ? "bg-green-100 text-green-800" : "bg-red-100 text-red-800"}`}>
+                {(selectedRunResult.success ?? selectedRunResult.passed) ? "PASSED" : "FAILED"}
               </span>
             </div>
             <div className="flex justify-between text-xs text-gray-600 bg-gray-50 p-3 rounded-md">
               <span>Total Latency: <strong>{selectedRunResult.totalLatency || 0}ms</strong></span>
-              <span>Steps Evaluated: <strong>{selectedRunResult.stepsEvaluated || 0}</strong></span>
+              <span>Steps Evaluated: <strong>{selectedRunResult.stepsEvaluated || selectedRunResult.steps?.length || 0}</strong></span>
             </div>
             <div className="space-y-3 max-h-72 overflow-y-auto pr-1">
-              {selectedRunResult.details?.map((res: any, idx: number) => (
+              {(selectedRunResult.details || selectedRunResult.steps)?.map((res: any, idx: number) => (
                 <div key={idx} className={`p-3 border rounded-md text-sm space-y-1 ${res.passed ? "border-green-200 bg-green-50/30" : "border-red-200 bg-red-50/30"}`}>
                   <div className="flex justify-between font-medium">
-                    <span>{res.stepName || `Step ${idx + 1}`}</span>
+                    <span>{res.stepName || res.title || `Step ${idx + 1}`}</span>
                     <span className={res.passed ? "text-green-600 font-semibold" : "text-red-600 font-semibold"}>
                       {res.passed ? "✓ PASSED" : "✕ FAILED"}
                     </span>

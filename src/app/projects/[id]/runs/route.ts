@@ -1,45 +1,60 @@
-import { NextRequest, NextResponse } from "next/server";
-import { createClient } from "@/lib/supabase/server";
+import { NextResponse } from "next/server";
+import { createClient } from "@/lib/supabase/client";
 
-export async function GET(
-  request: NextRequest,
-  { params }: { params: Promise<{ id: string }> }
+export async function POST(
+  request: Request,
+  { params }: { params: { id: string } }
 ) {
+  const supabase = createClient();
+  const projectId = params.id;
+
   try {
-    const { id: projectId } = await params;
-    const supabase = await createClient();
+    const body = await request.json();
+    const { status, duration_ms, latency } = body;
 
-    const { data: testCases } = await supabase
-      .from("test_cases")
-      .select("id")
-      .eq("project_id", projectId);
+    const runPayload = {
+      project_id: projectId,
+      status: status || "passed",
+      duration_ms: duration_ms ?? latency ?? 0,
+    };
 
-    const testCaseIds = testCases?.map((tc) => tc.id) || [];
-
-    if (testCaseIds.length === 0) {
-      return NextResponse.json({ runs: [] });
-    }
-
-    const { data: runs, error } = await supabase
+    const { data, error } = await supabase
       .from("test_runs")
-      .select(`
-        id,
-        status,
-        started_at,
-        duration_ms,
-        test_cases ( name )
-      `)
-      .in("test_case_id", testCaseIds)
-      .order("started_at", { ascending: false })
-      .limit(20);
+      .insert([runPayload])
+      .select();
 
     if (error) {
       return NextResponse.json({ error: error.message }, { status: 500 });
     }
 
-    return NextResponse.json({ runs });
-  } catch (err) {
-    const message = err instanceof Error ? err.message : "Failed to fetch runs";
-    return NextResponse.json({ error: message }, { status: 500 });
+    return NextResponse.json({ success: true, data });
+  } catch (err: unknown) {
+    const errorMsg = err instanceof Error ? err.message : "Internal Server Error";
+    return NextResponse.json({ error: errorMsg }, { status: 500 });
+  }
+}
+
+export async function GET(
+  request: Request,
+  { params }: { params: { id: string } }
+) {
+  const supabase = createClient();
+  const projectId = params.id;
+
+  try {
+    const { data, error } = await supabase
+      .from("test_runs")
+      .select("*")
+      .eq("project_id", projectId)
+      .order("created_at", { ascending: false });
+
+    if (error) {
+      return NextResponse.json({ error: error.message }, { status: 500 });
+    }
+
+    return NextResponse.json({ runs: data });
+  } catch (err: unknown) {
+    const errorMsg = err instanceof Error ? err.message : "Internal Server Error";
+    return NextResponse.json({ error: errorMsg }, { status: 500 });
   }
 }
