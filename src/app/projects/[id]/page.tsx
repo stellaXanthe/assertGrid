@@ -1,805 +1,241 @@
 "use client";
-
-import React, { useState, useEffect, useCallback } from "react";
-import Link from "next/link";
+import { useEffect, useState, useCallback } from "react";
+import { useParams, useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
-
-export interface StepDefinition {
-  id?: string;
-  action?: string;
-  type?: string;
-  title?: string;
-  name?: string;
-  selector?: string;
-  value?: string;
-  url?: string;
-  method?: string;
-  headers?: Record<string, string>;
-  body?: Record<string, unknown>;
-  expected_status?: number;
-}
-
-interface TestStepResult {
-  step: number;
-  title: string;
-  action?: string;
-  selector?: string;
-  value?: string;
-  statusReturned: number;
-  expected: number;
-  passed: boolean;
-  screenshot?: string | null;
-}
-
-interface TestRunResult {
-  testName: string;
-  overallStatus: "passed" | "failed";
-  executionMode: "headed" | "headless";
-  totalLatency: number;
-  stepsEvaluated: number;
-  steps: TestStepResult[];
-  targetUrl?: string | null;
-}
-
-interface TestItem {
-  id: string;
-  name: string;
-  type?: string;
-  method?: string;
-  url?: string;
-  steps?: StepDefinition[];
-  expected_status?: number;
-}
-
-interface ProjectMetrics {
-  passRate: number;
-  avgLatency: number;
-  totalExecutions: number;
-  failedExecutions: number;
-}
-
-export default function ProjectWorkspacePage({
-  params,
-}: {
-  params: Promise<{ id: string }> | { id: string };
-}) {
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { AiAssistant } from "@/components/AiAssistant";
+import { TestExecutionView } from "@/components/TestExecutionView";
+export default function ProjectDetailsPage() {
+  const params = useParams();
+  const projectId = params?.id as string;
+  const router = useRouter();
   const supabase = createClient();
-
-  const resolvedParams = params instanceof Promise ? React.use(params) : params;
-  const projectId = resolvedParams?.id;
-
-  const [loading, setLoading] = useState(false);
-  const [fetchingTests, setFetchingTests] = useState(true);
-  const [modalOpen, setModalOpen] = useState(false);
-  const [runResult, setRunResult] = useState<TestRunResult | null>(null);
-
-  // Active step index for viewing individual step screenshots
-  const [activeStepIndex, setActiveStepIndex] = useState<number>(0);
-
-  // Execution Mode Selection
-  const [isHeaded, setIsHeaded] = useState(false);
-
-  // Workspace Test Cases
-  const [tests, setTests] = useState<TestItem[]>([]);
-
-  // Project Metrics
-  const [metrics, setMetrics] = useState<ProjectMetrics>({
-    passRate: 0,
-    avgLatency: 0,
-    totalExecutions: 0,
-    failedExecutions: 0,
-  });
-
-  const loadProjectMetrics = useCallback(async () => {
+  const [project, setProject] = useState<any>(null);
+  const [tests, setTests] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [runningTestId, setRunningTestId] = useState<string | null>(null);
+  const [isRunningAll, setIsRunningAll] = useState(false);
+  const [selectedRunResult, setSelectedRunResult] = useState<any | null>(null);
+  const [executionView, setExecutionView] = useState<any | null>(null);
+  const [runMode, setRunMode] = useState<"headless" | "headed">("headless");
+  const fetchProjectData = useCallback(async () => {
     if (!projectId) return;
-
-    const { data: runsData, error } = await supabase
-      .from("test_runs")
-      .select("*")
-      .eq("project_id", projectId);
-
-    if (error) {
-      console.error("Error loading project metrics:", error.message);
-      return;
-    }
-
-    if (runsData && runsData.length > 0) {
-      const totalExecutions = runsData.length;
-      const passedRuns = runsData.filter(
-        (r) => r.status?.toLowerCase() === "passed"
-      ).length;
-      const failedExecutions = runsData.filter(
-        (r) => r.status?.toLowerCase() === "failed"
-      ).length;
-
-      const passRate = Math.round((passedRuns / totalExecutions) * 100);
-
-      const totalMs = runsData.reduce((acc: number, r) => {
-        const val = r.duration_ms ?? r.latency ?? 0;
-        return acc + Number(val);
-      }, 0);
-
-      const avgLatency = Math.round(totalMs / totalExecutions);
-
-      setMetrics({
-        passRate,
-        avgLatency,
-        totalExecutions,
-        failedExecutions,
-      });
-    } else {
-      setMetrics({
-        passRate: 0,
-        avgLatency: 0,
-        totalExecutions: 0,
-        failedExecutions: 0,
-      });
-    }
-  }, [projectId, supabase]);
-
-  useEffect(() => {
-    async function loadWorkspaceData() {
-      if (!projectId) return;
-      setFetchingTests(true);
-
-      const { data, error } = await supabase
-        .from("test_cases")
-        .select("*")
-        .eq("project_id", projectId);
-
-      if (error) {
-        console.error("Error fetching test cases:", error.message);
-      } else if (data && data.length > 0) {
-        const mappedData: TestItem[] = data.map((t) => ({
-          id: t.id,
-          name: t.name,
-          type: t.type,
-          method: t.method || (t.type === "api" ? "GET" : "BROWSER"),
-          url: t.url || (t.steps?.[0]?.url ?? ""),
-          steps: t.steps || [],
-          expected_status: t.expected_status || 200,
-        }));
-        setTests(mappedData);
-      } else {
-        setTests([
-          {
-            id: "test-login-123",
-            name: "Login Page Test",
-            type: "browser",
-            method: "BROWSER",
-            url: "https://www.saucedemo.com/",
-            steps: [
-              {
-                id: "step-1",
-                action: "navigate",
-                title: "Open Login Page",
-                value: "https://www.saucedemo.com/",
-              },
-              {
-                id: "step-2",
-                action: "fill",
-                title: "Enter Username",
-                selector: "#user-name",
-                value: "standard_user",
-              },
-              {
-                id: "step-3",
-                action: "fill",
-                title: "Enter Password",
-                selector: "#password",
-                value: "secret_sauce",
-              },
-              {
-                id: "step-4",
-                action: "click",
-                title: "Click Submit",
-                selector: "#login-button",
-              },
-            ],
-          },
-        ]);
-      }
-
-      await loadProjectMetrics();
-      setFetchingTests(false);
-    }
-
-    loadWorkspaceData();
-  }, [projectId, supabase, loadProjectMetrics]);
-
-  const handleResetExecutions = async () => {
-    if (!projectId) return;
-    if (
-      !window.confirm(
-        "Are you sure you want to clear all test execution history for this project?"
-      )
-    ) {
-      return;
-    }
-
-    const { error } = await supabase
-      .from("test_runs")
-      .delete()
-      .eq("project_id", projectId);
-
-    if (error) {
-      console.error("Failed to reset executions:", error.message);
-      alert("Error clearing test runs.");
-    } else {
-      setMetrics({
-        passRate: 0,
-        avgLatency: 0,
-        totalExecutions: 0,
-        failedExecutions: 0,
-      });
-      alert("Execution history cleared successfully.");
-    }
-  };
-
-  const handleRunTest = async (testItem: TestItem) => {
-    if (!projectId) {
-      alert("Project ID is missing.");
-      return;
-    }
-
     setLoading(true);
-    const startTime = performance.now();
-    const mode: "headed" | "headless" = isHeaded ? "headed" : "headless";
-
-    let stepsEvaluated: TestStepResult[] = [];
-    let isPassed = true;
-    let targetUrl: string | null = null;
-
     try {
-      const res = await fetch("/api/run-test", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          projectId: projectId,
-          testId: testItem.id,
-          type: testItem.type,
-          method: testItem.method,
-          url: testItem.url,
-          steps: testItem.steps || [],
-          expected_status: testItem.expected_status || 200,
-          headless: !isHeaded,
-          captureAllSteps: true,
-        }),
-      });
-
-      if (res.ok) {
-        const liveData = await res.json();
-        const rawSteps = liveData.steps || testItem.steps || [];
-
-        stepsEvaluated = rawSteps.map((s: Record<string, unknown>, index: number) => {
-          const originalStep = testItem.steps?.[index] || {};
-          const stepScreenshot =
-            (s.screenshot as string) ||
-            (s.screenshotUrl as string) ||
-            (s.screenshot_url as string) ||
-            (s.image as string) ||
-            (s.base64 as string) ||
-            null;
-
-          return {
-            step: typeof s.step === "number" ? s.step : index + 1,
-            title:
-              (s.title as string) ||
-              (s.action as string) ||
-              (originalStep.title as string) ||
-              `Step #${index + 1}`,
-            action: (s.action as string) || (originalStep.action as string) || "",
-            selector: (s.selector as string) || (originalStep.selector as string) || "",
-            value: (s.value as string) || (originalStep.value as string) || "",
-            statusReturned: (s.statusReturned as number) || (s.status as number) || 200,
-            expected: (s.expected as number) || 200,
-            passed: s.passed !== undefined ? Boolean(s.passed) : true,
-            screenshot: stepScreenshot,
-          };
-        });
-
-        isPassed = liveData.passed ?? true;
-        targetUrl = liveData.targetUrl || testItem.url || null;
-      } else {
-        let errorMessage = "Server processing error.";
-        try {
-          const errorData = await res.json();
-          errorMessage = errorData.error || errorMessage;
-        } catch {
-          errorMessage = `HTTP ${res.status}: Execution error. Check Vercel logs.`;
-        }
-
-        alert(`Execution failed: ${errorMessage}`);
-        setLoading(false);
-        return;
-      }
+      const { data: projectData, error: projErr } = await supabase
+        .from("projects").select("*").eq("id", projectId).single();
+      if (projErr) throw projErr;
+      setProject(projectData);
+      const { data: testData, error: testErr } = await supabase
+        .from("test_cases").select("*").eq("project_id", projectId)
+        .order("created_at", { ascending: false });
+      if (testErr) throw testErr;
+      setTests(testData || []);
     } catch (err) {
-      console.error("Network or script error:", err);
-      alert("Failed to reach automation backend.");
-      setLoading(false);
-      return;
-    }
-
-    const endTime = performance.now();
-    const calculatedLatency = Math.round(endTime - startTime);
-    const overallStatus: "passed" | "failed" = isPassed ? "passed" : "failed";
-
-    setRunResult({
-      testName: testItem.name,
-      overallStatus,
-      executionMode: mode,
-      totalLatency: calculatedLatency,
-      stepsEvaluated: stepsEvaluated.length,
-      steps: stepsEvaluated,
-      targetUrl,
-    });
-
-    setActiveStepIndex(0);
-
-    try {
-      const payload = {
-        project_id: projectId,
-        test_id: testItem.id,
-        status: overallStatus,
-        duration_ms: calculatedLatency,
-        latency: calculatedLatency,
-      };
-
-      const { error } = await supabase.from("test_runs").insert([payload]);
-
-      if (error) {
-        console.error("Failed to insert run log into Supabase:", error.message);
-      } else {
-        await loadProjectMetrics();
-      }
-    } catch (err) {
-      console.error("Save run log error:", err);
+      console.error("Error fetching project data:", err);
     } finally {
       setLoading(false);
-      setModalOpen(true);
+    }
+  }, [projectId, supabase]);
+  useEffect(() => { fetchProjectData(); }, [fetchProjectData]);
+  const handleRunTest = async (test: any) => {
+    setRunningTestId(test.id);
+    try {
+      const stepsToRun =
+        test.steps && Array.isArray(test.steps) && test.steps.length > 0
+          ? test.steps
+          : [{ name: test.title || "Step 1", method: test.method || "GET", url: test.url || test.target_url || "", expectedStatus: test.expected_status || 200 }];
+      const isWebTest =
+        test.type === "web" ||
+        stepsToRun.some((s: any) => s.type === "browser" || s.action || s.assertionType);
+      if (isWebTest) {
+        const response = await fetch("/api/run-web-test", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ testId: test.id, steps: stepsToRun, mode: runMode }),
+        });
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.error || "Failed to run test.");
+        setExecutionView({ ...data, testTitle: test.title || test.name || "Test Execution" });
+      } else {
+        const response = await fetch("/api/run-test", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ testId: test.id, steps: stepsToRun }),
+        });
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.error || "Failed to run test.");
+        setSelectedRunResult({ testTitle: test.title || test.name || "Test Execution", ...data });
+      }
+    } catch (err: unknown) {
+      alert(err instanceof Error ? err.message : "Failed to run test.");
+    } finally {
+      setRunningTestId(null);
     }
   };
-
   const handleRunAllTests = async () => {
     if (tests.length === 0) return;
-    for (const test of tests) {
-      await handleRunTest(test);
-    }
+    setIsRunningAll(true);
+    for (const test of tests) await handleRunTest(test);
+    setIsRunningAll(false);
   };
-
   const handleDeleteTest = async (testId: string) => {
-    if (window.confirm("Are you sure you want to delete this test?")) {
-      const { error } = await supabase
-        .from("test_cases")
-        .delete()
-        .eq("id", testId);
-
-      if (error) {
-        console.error("Failed to delete test:", error.message);
-      }
+    if (!confirm("Are you sure you want to delete this test case?")) return;
+    try {
+      const { error } = await supabase.from("test_cases").delete().eq("id", testId);
+      if (error) throw error;
       setTests((prev) => prev.filter((t) => t.id !== testId));
+    } catch (err: unknown) {
+      alert(err instanceof Error ? err.message : "Failed to delete test case.");
     }
   };
-
-  const currentStep = runResult?.steps[activeStepIndex];
-
+  const handleResetExecutions = () => {
+    setSelectedRunResult(null);
+    setExecutionView(null);
+    fetchProjectData();
+  };
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center min-h-[400px]">
+        <p className="text-gray-500 font-medium">Loading project...</p>
+      </div>
+    );
+  }
   return (
-    <div className="min-h-screen bg-gray-50 p-8">
-      <div className="max-w-5xl mx-auto space-y-6">
-        {/* Workspace Top Bar */}
-        <Card>
-          <CardContent className="p-6 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-            <div>
-              <div className="flex items-center gap-2">
-                <Link
-                  href="/dashboard"
-                  className="text-xs text-blue-600 hover:underline font-medium"
-                >
-                  ← Back to Dashboard
-                </Link>
-              </div>
-              <h1 className="text-2xl font-bold text-gray-900 mt-1">
-                Project Workspace
-              </h1>
-              <p className="text-sm text-gray-500 font-mono mt-0.5">
-                ID: {projectId || "Loading..."}
-              </p>
-            </div>
-
-            <div className="flex flex-wrap items-center gap-3">
-              <div className="flex items-center bg-gray-100 p-1 rounded-lg border border-gray-200">
-                <button
-                  type="button"
-                  onClick={() => setIsHeaded(false)}
-                  className={`px-3 py-1.5 text-xs font-semibold rounded-md transition-all cursor-pointer ${
-                    !isHeaded
-                      ? "bg-white text-gray-900 shadow-sm"
-                      : "text-gray-500 hover:text-gray-900"
-                  }`}
-                >
-                  ⚡ Headless
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setIsHeaded(true)}
-                  title="Launch live UI mode with rendered DOM view"
-                  className={`px-3 py-1.5 text-xs font-semibold rounded-md transition-all cursor-pointer ${
-                    isHeaded
-                      ? "bg-white text-gray-900 shadow-sm"
-                      : "text-gray-500 hover:text-gray-900"
-                  }`}
-                >
-                  🖥️ Headed (Live UI)
-                </button>
-              </div>
-
-              <Button
-                onClick={handleRunAllTests}
-                disabled={loading || tests.length === 0}
-                className="cursor-pointer"
-              >
-                ⚡ {loading ? "Running..." : "Run All Tests"}
-              </Button>
-
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={handleResetExecutions}
-                className="text-red-600 border-red-200 hover:bg-red-50 cursor-pointer"
-              >
-                🔄 Reset Executions
-              </Button>
-            </div>
-          </CardContent>
-        </Card>
-
-        {/* Project Metrics Summary Bar */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-          <Card>
-            <CardContent className="p-4">
-              <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider">
-                Project Pass Rate
-              </p>
-              <h3 className="text-2xl font-bold text-emerald-600 mt-1">
-                {metrics.passRate}%
-              </h3>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardContent className="p-4">
-              <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider">
-                Avg Response Latency
-              </p>
-              <h3 className="text-2xl font-bold text-blue-600 mt-1">
-                {metrics.avgLatency} ms
-              </h3>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardContent className="p-4">
-              <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider">
-                Total Runs
-              </p>
-              <h3 className="text-2xl font-bold text-gray-900 mt-1">
-                {metrics.totalExecutions}
-              </h3>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardContent className="p-4">
-              <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider">
-                Failed Runs
-              </p>
-              <h3
-                className={`text-2xl font-bold mt-1 ${
-                  metrics.failedExecutions > 0
-                    ? "text-red-600"
-                    : "text-gray-900"
-                }`}
-              >
-                {metrics.failedExecutions}
-              </h3>
-            </CardContent>
-          </Card>
-        </div>
-
-        {/* Test List Section */}
-        <div>
-          <div className="flex items-center justify-between mb-4">
-            <h2 className="text-lg font-semibold text-gray-800">
-              API & Web Tests ({tests.length})
-            </h2>
-            <Link
-              href={`/projects/${projectId}/new`}
-              className="text-xs text-blue-600 hover:underline font-medium"
-            >
-              + Create New Test
-            </Link>
+    <div className="max-w-6xl mx-auto p-6 space-y-6 relative">
+      <Card className="border shadow-sm">
+        <CardHeader className="flex flex-row items-center justify-between pb-2">
+          <div>
+            <CardTitle className="text-2xl font-bold">{project?.name || "Project Workspace"}</CardTitle>
+            <p className="text-xs text-gray-400 mt-1">
+              Project ID: <code className="bg-gray-100 px-1 py-0.5 rounded">{projectId}</code>
+            </p>
           </div>
-
-          {fetchingTests ? (
-            <Card>
-              <CardContent className="p-8 text-center text-gray-500 text-sm">
-                Loading test suite...
-              </CardContent>
-            </Card>
-          ) : tests.length === 0 ? (
-            <Card>
-              <CardContent className="p-8 text-center text-gray-500">
-                No test cases found in this project.
-              </CardContent>
-            </Card>
-          ) : (
-            <div className="space-y-3">
-              {tests.map((test) => (
-                <Card key={test.id}>
-                  <CardContent className="p-4 flex items-center justify-between">
-                    <div className="flex items-center gap-3">
-                      <Badge
-                        variant="outline"
-                        className="font-semibold text-blue-600 uppercase"
-                      >
-                        {test.method || test.type || "API"}
-                      </Badge>
-                      <div>
-                        <p className="font-medium text-gray-900">{test.name}</p>
-                        <p className="text-xs text-gray-500">
-                          {test.url
-                            ? test.url
-                            : `${test.steps?.length || 0} step(s)`}
-                        </p>
-                      </div>
-                    </div>
-
+          <div className="flex gap-2 items-center">
+            <div className="flex rounded-md border bg-gray-100 p-0.5 text-xs font-medium">
+              <button
+                onClick={() => setRunMode("headless")}
+                className={`px-2.5 py-1.5 rounded-sm flex items-center gap-1 ${runMode === "headless" ? "bg-white text-gray-900 shadow-sm" : "text-gray-500"}`}
+              >
+                ⚡ Headless
+              </button>
+              <button
+                onClick={() => setRunMode("headed")}
+                className={`px-2.5 py-1.5 rounded-sm flex items-center gap-1 ${runMode === "headed" ? "bg-white text-blue-600 shadow-sm" : "text-gray-500"}`}
+              >
+                🖥 Headed (Live UI)
+              </button>
+            </div>
+            <Button
+              variant="default"
+              size="sm"
+              className="bg-black hover:bg-gray-800"
+              disabled={isRunningAll || tests.length === 0}
+              onClick={handleRunAllTests}
+            >
+              {isRunningAll ? "Running Suite..." : "⚡ Run All Tests"}
+            </Button>
+            <Button variant="outline" size="sm" onClick={handleResetExecutions}>
+              ⟲ Reset Executions
+            </Button>
+            <Button size="sm" onClick={() => router.push(`/projects/${projectId}/new`)}>
+              + Add Test
+            </Button>
+          </div>
+        </CardHeader>
+      </Card>
+      <div className="space-y-4">
+        <div className="flex justify-between items-center">
+          <h2 className="text-lg font-semibold text-gray-800">API & Web Tests ({tests.length})</h2>
+          <a href="#" onClick={(e) => { e.preventDefault(); router.push(`/projects/${projectId}/new`); }} className="text-sm text-blue-600 hover:underline">
+            + Create New Test
+          </a>
+        </div>
+        {tests.length === 0 ? (
+          <Card className="p-8 text-center border-dashed">
+            <p className="text-gray-500 mb-4">No test cases created yet.</p>
+            <Button size="sm" onClick={() => router.push(`/projects/${projectId}/new`)}>Create Your First Test</Button>
+          </Card>
+        ) : (
+          tests.map((test) => {
+            const firstStep = test.steps?.[0] || {};
+            const isWeb = test.type === "web" || firstStep.type === "browser";
+            const httpMethod = (firstStep.method || test.method || "GET").toUpperCase();
+            const targetUrl = firstStep.url || test.url || test.target_url || "N/A";
+            return (
+              <Card key={test.id} className="p-4 border shadow-sm hover:shadow-md transition-shadow">
+                <div className="flex items-center justify-between">
+                  <div className="space-y-1">
                     <div className="flex items-center gap-2">
-                      <Button
-                        size="sm"
-                        onClick={() => handleRunTest(test)}
-                        disabled={loading}
-                        className="bg-gray-900 hover:bg-black text-white cursor-pointer"
-                      >
-                        ▶ {loading ? "Running..." : "Run Test"}
-                      </Button>
-
-                      <Link
-                        href={`/projects/${projectId}/tests/${test.id}/edit`}
-                        className="inline-flex items-center justify-center rounded-md px-3 py-1.5 text-xs font-medium border border-gray-300 bg-white text-gray-700 hover:bg-gray-100 transition-colors"
-                      >
-                        Edit
-                      </Link>
-
-                      <Button
-                        size="sm"
-                        variant="ghost"
-                        onClick={() => handleDeleteTest(test.id)}
-                        className="text-red-600 hover:text-red-700 hover:bg-red-50 cursor-pointer text-xs"
-                      >
-                        Delete
-                      </Button>
+                      <span className={`text-xs font-semibold px-2 py-0.5 rounded border ${isWeb ? "bg-blue-50 text-blue-700 border-blue-100" : "bg-amber-50 text-amber-700 border-amber-100"}`}>
+                        {isWeb ? "BROWSER" : httpMethod}
+                      </span>
+                      <span className="font-semibold text-gray-900">{test.title || test.name || "Untitled Test"}</span>
                     </div>
-                  </CardContent>
-                </Card>
+                    <p className="text-xs text-gray-500 font-mono truncate max-w-xl">{targetUrl}</p>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <Button size="sm" disabled={runningTestId === test.id} onClick={() => handleRunTest(test)}>
+                      {runningTestId === test.id ? "Running..." : "▶ Run Test"}
+                    </Button>
+                    <Button variant="outline" size="sm" onClick={() => router.push(`/projects/${projectId}/tests/${test.id}/edit`)}>
+                      Edit
+                    </Button>
+                    <Button variant="destructive" size="sm" onClick={() => handleDeleteTest(test.id)}>
+                      Delete
+                    </Button>
+                  </div>
+                </div>
+              </Card>
+            );
+          })
+        )}
+      </div>
+      {selectedRunResult && (
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center p-4 z-50 animate-in fade-in duration-200">
+          <Card className="w-full max-w-xl bg-white p-6 rounded-lg shadow-xl relative space-y-4">
+            <div className="flex justify-between items-center pb-3 border-b">
+              <h3 className="font-bold text-lg text-gray-900">{selectedRunResult.testTitle}</h3>
+              <span className={`px-2.5 py-1 text-xs font-bold rounded-full ${selectedRunResult.success ? "bg-green-100 text-green-800" : "bg-red-100 text-red-800"}`}>
+                {selectedRunResult.success ? "PASSED" : "FAILED"}
+              </span>
+            </div>
+            <div className="flex justify-between text-xs text-gray-600 bg-gray-50 p-3 rounded-md">
+              <span>Total Latency: <strong>{selectedRunResult.totalLatency || 0}ms</strong></span>
+              <span>Steps Evaluated: <strong>{selectedRunResult.stepsEvaluated || 0}</strong></span>
+            </div>
+            <div className="space-y-3 max-h-72 overflow-y-auto pr-1">
+              {selectedRunResult.details?.map((res: any, idx: number) => (
+                <div key={idx} className={`p-3 border rounded-md text-sm space-y-1 ${res.passed ? "border-green-200 bg-green-50/30" : "border-red-200 bg-red-50/30"}`}>
+                  <div className="flex justify-between font-medium">
+                    <span>{res.stepName || `Step ${idx + 1}`}</span>
+                    <span className={res.passed ? "text-green-600 font-semibold" : "text-red-600 font-semibold"}>
+                      {res.passed ? "✓ PASSED" : "✕ FAILED"}
+                    </span>
+                  </div>
+                  <div className="text-xs text-gray-500">
+                    Status Returned: <strong>{res.statusReturned}</strong> | Expected: <strong>{res.expectedStatus}</strong>
+                  </div>
+                  {res.error && (
+                    <div className="mt-2 p-2 bg-red-100/80 text-red-700 text-xs rounded font-mono border border-red-200">
+                      Error: {res.error}
+                    </div>
+                  )}
+                </div>
               ))}
             </div>
-          )}
-        </div>
-      </div>
-
-      {/* FULL-SCREEN WORKSPACE OVERLAY INSPECTOR */}
-      {modalOpen && runResult && (
-        <div className="fixed inset-0 z-[9999] bg-slate-950 flex flex-col w-screen h-screen overflow-hidden text-slate-100 animate-in fade-in duration-150">
-          {/* Top Bar Navigation */}
-          <header className="h-16 border-b border-slate-800 bg-slate-900/90 px-6 flex items-center justify-between shrink-0 shadow-md">
-            <div className="flex items-center gap-4">
-              <div className="flex items-center gap-2">
-                <span className="h-3 w-3 rounded-full bg-blue-500 animate-pulse" />
-                <h2 className="text-lg font-bold text-white tracking-tight">
-                  {runResult.testName}
-                </h2>
-              </div>
-              <div className="hidden sm:flex items-center gap-3 text-xs text-slate-400 border-l border-slate-700 pl-4 font-mono">
-                <span>
-                  Mode:{" "}
-                  <strong className="text-slate-200 capitalize">
-                    {runResult.executionMode}
-                  </strong>
-                </span>
-                <span>•</span>
-                <span>
-                  Duration:{" "}
-                  <strong className="text-slate-200">
-                    {runResult.totalLatency}ms
-                  </strong>
-                </span>
-                <span>•</span>
-                <span>
-                  Steps:{" "}
-                  <strong className="text-slate-200">
-                    {runResult.stepsEvaluated}
-                  </strong>
-                </span>
-              </div>
+            <div className="pt-2 flex justify-end">
+              <Button onClick={() => setSelectedRunResult(null)}>Close</Button>
             </div>
-
-            <div className="flex items-center gap-3">
-              <Badge
-                className={
-                  runResult.overallStatus === "passed"
-                    ? "bg-emerald-500/20 text-emerald-400 border-emerald-500/40 uppercase text-xs px-3 py-1 font-mono font-bold"
-                    : "bg-rose-500/20 text-rose-400 border-rose-500/40 uppercase text-xs px-3 py-1 font-mono font-bold"
-                }
-              >
-                {runResult.overallStatus}
-              </Badge>
-
-              {runResult.targetUrl && (
-                <Button
-                  size="sm"
-                  variant="outline"
-                  onClick={() => window.open(runResult.targetUrl!, "_blank")}
-                  className="bg-slate-800 border-slate-700 text-slate-200 hover:bg-slate-700 text-xs hidden md:flex"
-                >
-                  🌐 Open Target Webpage ↗
-                </Button>
-              )}
-
-              <Button
-                onClick={() => setModalOpen(false)}
-                className="bg-rose-600 hover:bg-rose-700 text-white font-semibold text-xs px-4"
-              >
-                ✕ Close Workspace
-              </Button>
-            </div>
-          </header>
-
-          {/* Main Full-Width Split Layout */}
-          <div className="flex-1 flex overflow-hidden">
-            {/* Sidebar Step Inspector List */}
-            <aside className="w-80 lg:w-96 border-r border-slate-800 bg-slate-900/50 flex flex-col shrink-0">
-              <div className="p-4 border-b border-slate-800 flex items-center justify-between bg-slate-900/80">
-                <span className="text-xs font-bold uppercase tracking-wider text-slate-400 font-mono">
-                  Execution Flow
-                </span>
-                <span className="text-xs bg-slate-800 text-slate-300 font-mono px-2 py-0.5 rounded">
-                  {runResult.steps.length} Steps
-                </span>
-              </div>
-
-              <div className="flex-1 overflow-y-auto p-3 space-y-2">
-                {runResult.steps.map((step, idx) => {
-                  const isSelected = activeStepIndex === idx;
-                  return (
-                    <div
-                      key={`step-item-${step.step}-${idx}`}
-                      onClick={() => setActiveStepIndex(idx)}
-                      className={`p-3.5 rounded-lg cursor-pointer transition-all border ${
-                        isSelected
-                          ? "bg-blue-600/15 border-blue-500 shadow-md ring-1 ring-blue-500/30"
-                          : "bg-slate-900/60 border-slate-800 hover:bg-slate-800/60 hover:border-slate-700"
-                      }`}
-                    >
-                      <div className="flex items-center justify-between mb-1.5">
-                        <span className="text-xs font-mono font-bold text-blue-400">
-                          STEP #{step.step}
-                        </span>
-                        <span
-                          className={`text-[11px] font-bold font-mono px-2 py-0.5 rounded ${
-                            step.passed
-                              ? "bg-emerald-500/10 text-emerald-400 border border-emerald-500/20"
-                              : "bg-rose-500/10 text-rose-400 border border-rose-500/20"
-                          }`}
-                        >
-                          {step.passed ? "PASSED" : "FAILED"}
-                        </span>
-                      </div>
-
-                      <p className="text-sm font-semibold text-slate-100 truncate">
-                        {step.title}
-                      </p>
-
-                      <div className="flex items-center justify-between text-xs text-slate-400 mt-2 pt-2 border-t border-slate-800/80 font-mono">
-                        <span>HTTP {step.statusReturned}</span>
-                        <span className="text-emerald-400 flex items-center gap-1">
-                          📷 Frame Captured
-                        </span>
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            </aside>
-
-            {/* Step-Aware High-Resolution Viewport */}
-            <main className="flex-1 flex flex-col bg-slate-950 p-6 overflow-hidden">
-              <div className="flex items-center justify-between pb-3 mb-4 border-b border-slate-800/80 shrink-0">
-                <div className="flex items-center gap-3">
-                  <span className="px-2.5 py-1 bg-blue-500/10 border border-blue-500/30 text-blue-400 rounded text-xs font-mono font-bold">
-                    STEP {currentStep?.step ?? activeStepIndex + 1}
-                  </span>
-                  <h3 className="text-base font-semibold text-slate-200">
-                    {currentStep?.title || "Step Analysis"}
-                  </h3>
-                </div>
-
-                <div className="text-xs text-slate-400 font-mono flex items-center gap-4">
-                  <span>
-                    Action:{" "}
-                    <strong className="text-blue-400 uppercase font-bold">
-                      {currentStep?.action || (activeStepIndex === 0 ? "goto" : "fill")}
-                    </strong>
-                  </span>
-                  <span>
-                    Status Code:{" "}
-                    <span className="text-emerald-400 font-bold">
-                      {currentStep?.statusReturned ?? 200}
-                    </span>
-                  </span>
-                </div>
-              </div>
-
-              {/* Step Display Container with Visual Step Highlights */}
-              <div className="flex-1 relative bg-slate-900/40 border border-slate-800/90 rounded-xl flex items-center justify-center p-4 overflow-hidden shadow-inner">
-                {currentStep?.screenshot ? (
-                  <div className="w-full h-full flex flex-col items-center justify-center relative">
-                    <div className="relative max-w-full max-h-[82%] flex items-center justify-center">
-                      {/* eslint-disable-next-line @next/next/no-img-element */}
-                      <img
-                        key={`step-img-${activeStepIndex}`}
-                        src={currentStep.screenshot}
-                        alt={`Step ${currentStep.step} Frame`}
-                        className="max-w-full max-h-full object-contain rounded-lg border border-slate-800 shadow-2xl transition-all duration-150"
-                      />
-
-                      {/* Visual Action Overlay Indicators on top of the screenshot */}
-                      {activeStepIndex === 1 && (
-                        <div className="absolute top-[38%] left-[45%] w-48 h-8 border-2 border-blue-500 bg-blue-500/20 rounded text-[10px] text-blue-300 font-mono flex items-center px-2 animate-pulse">
-                          Username: standard_user
-                        </div>
-                      )}
-                      {activeStepIndex === 2 && (
-                        <div className="absolute top-[48%] left-[45%] w-48 h-8 border-2 border-blue-500 bg-blue-500/20 rounded text-[10px] text-blue-300 font-mono flex items-center px-2 animate-pulse">
-                          Password: ••••••••••
-                        </div>
-                      )}
-                      {activeStepIndex === 3 && (
-                        <div className="absolute top-[58%] left-[45%] w-48 h-10 border-2 border-emerald-400 bg-emerald-500/20 rounded text-[10px] text-emerald-300 font-mono flex items-center justify-center font-bold animate-ping">
-                          CLICK LOGIN
-                        </div>
-                      )}
-                    </div>
-
-                    <div className="mt-3 px-4 py-2 bg-slate-900/95 border border-slate-700/80 rounded-lg shadow-lg flex items-center gap-3 text-xs font-mono">
-                      <span className="h-2.5 w-2.5 rounded-full bg-emerald-400 animate-pulse" />
-                      <span className="text-slate-300">
-                        {activeStepIndex === 0 &&
-                          "Step #1: Loaded login URL and rendered baseline DOM structure."}
-                        {activeStepIndex === 1 &&
-                          'Step #2: Typed value "standard_user" into input selector #user-name.'}
-                        {activeStepIndex === 2 &&
-                          'Step #3: Typed value "secret_sauce" into input selector #password.'}
-                        {activeStepIndex === 3 &&
-                          "Step #4: Triggered click action on button selector #login-button."}
-                        {activeStepIndex > 3 &&
-                          `Executed action: ${currentStep.action}`}
-                      </span>
-                    </div>
-                  </div>
-                ) : (
-                  <div className="flex flex-col items-center justify-center text-slate-500 space-y-2">
-                    <span className="text-4xl">🖥️</span>
-                    <p className="text-sm">
-                      No screenshot captured for Step #{activeStepIndex + 1}.
-                    </p>
-                  </div>
-                )}
-              </div>
-            </main>
-          </div>
+          </Card>
         </div>
       )}
+      {executionView && <TestExecutionView result={executionView} onClose={() => setExecutionView(null)} />}
+      <AiAssistant
+        projectId={projectId}
+        currentContext={{ projectName: project?.name, testCount: tests.length, page: "project_details" }}
+      />
     </div>
   );
 }

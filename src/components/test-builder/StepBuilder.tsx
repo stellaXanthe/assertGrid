@@ -1,31 +1,45 @@
 "use client";
 
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Card, CardContent } from "@/components/ui/card";
-import { Plus, Trash2, Globe, Server, CheckSquare, Play } from "lucide-react";
+import { useState, useEffect } from "react";
+import Link from "next/link";
+import { useRouter } from "next/navigation";
+import { createClient } from "@/lib/supabase/client";
 
-export interface ExtractRule {
-  varName: string;
-  jsonPath: string;
-}
+export type StepCategory = "browser" | "api";
+export type StepMode = "action" | "assertion";
 
 export interface TestStep {
+  id: string;
   name: string;
-  type: "browser" | "api";
-  category?: "action" | "assertion"; // Action vs Assertion category
-  action: string;
-  url: string;
+  category: StepCategory;
+  mode: StepMode;
+
+  // Browser Action fields
+  action?: string;
+  targetUrl?: string;
   selector?: string;
   value?: string;
-  method?: string;
-  headers?: string;
-  body?: string;
-  expected_status?: number;
-  extractRules?: ExtractRule[];
+
+  // Browser Assertion fields
+  assertionType?: string;
+  expectedValue?: string;
+  attributeName?: string;
+
+  // API fields
+  method?: "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
+  endpointUrl?: string;
+  expectedStatus?: number;
 }
 
-const ACTION_OPTIONS = [
+interface TestFormProps {
+  projectId: string;
+  testId?: string;
+  initialName?: string;
+  initialSteps?: TestStep[];
+  isEdit?: boolean;
+}
+
+const BROWSER_ACTIONS = [
   { label: "Navigate — goto()", value: "goto" },
   { label: "Click Element — click()", value: "click" },
   { label: "Double Click — dblclick()", value: "dblclick" },
@@ -40,7 +54,7 @@ const ACTION_OPTIONS = [
   { label: "Upload File — setInputFiles()", value: "setInputFiles" },
 ];
 
-const ASSERTION_OPTIONS = [
+const ASSERTION_TYPES = [
   { label: "Be Visible — toBeVisible()", value: "toBeVisible" },
   { label: "Be Hidden — toBeHidden()", value: "toBeHidden" },
   { label: "Have Exact Text — toHaveText()", value: "toHaveText" },
@@ -52,319 +66,450 @@ const ASSERTION_OPTIONS = [
   { label: "Have Page URL — toHaveURL()", value: "toHaveURL" },
 ];
 
-const ASSERTION_VALUES = new Set(ASSERTION_OPTIONS.map((a) => a.value));
+export default function TestForm({
+  projectId,
+  testId,
+  initialName = "Login Page",
+  initialSteps,
+  isEdit = false,
+}: TestFormProps) {
+  const router = useRouter();
+  const supabase = createClient();
 
-interface StepBuilderProps {
-  steps: TestStep[];
-  onChange: (steps: TestStep[]) => void;
-}
+  const [flowName, setFlowName] = useState(initialName);
+  const [saving, setSaving] = useState(false);
 
-export function StepBuilder({ steps, onChange }: StepBuilderProps) {
-  const addStep = (type: "browser" | "api") => {
+  const [steps, setSteps] = useState<TestStep[]>(
+    initialSteps || [
+      {
+        id: "step-1",
+        name: "Step 1: Open Home Page",
+        category: "browser",
+        mode: "action",
+        action: "goto",
+        targetUrl: "https://www.saucedemo.com/",
+      },
+    ]
+  );
+
+  useEffect(() => {
+    if (initialName) setFlowName(initialName);
+    if (initialSteps && initialSteps.length > 0) setSteps(initialSteps);
+  }, [initialName, initialSteps]);
+
+  const handleAddBrowserStep = () => {
     const newStep: TestStep = {
+      id: `step-${Date.now()}`,
       name: `Step ${steps.length + 1}`,
-      type,
-      category: "action",
-      action: type === "browser" ? "goto" : "",
-      url: "",
-      selector: "",
-      value: "",
-      method: "GET",
-      headers: "{}",
-      body: "{}",
-      expected_status: 200,
-      extractRules: [],
+      category: "browser",
+      mode: "action",
+      action: "goto",
+      targetUrl: "https://www.saucedemo.com/",
     };
-    onChange([...steps, newStep]);
+    setSteps([...steps, newStep]);
   };
 
-  const updateStep = (index: number, updatedFields: Partial<TestStep>) => {
-    const updated = [...steps];
-    updated[index] = { ...updated[index], ...updatedFields };
-    onChange(updated);
+  const handleAddApiStep = () => {
+    const newStep: TestStep = {
+      id: `step-${Date.now()}`,
+      name: `Step ${steps.length + 1}`,
+      category: "api",
+      mode: "action",
+      method: "GET",
+      endpointUrl: "https://api.example.com/v1/health",
+      expectedStatus: 200,
+    };
+    setSteps([...steps, newStep]);
   };
 
-  const removeStep = (index: number) => {
-    onChange(steps.filter((_, i) => i !== index));
+  const updateStep = (id: string, fields: Partial<TestStep>) => {
+    setSteps((prev) =>
+      prev.map((step) => (step.id === id ? { ...step, ...fields } : step))
+    );
+  };
+
+  const removeStep = (id: string) => {
+    setSteps((prev) => prev.filter((s) => s.id !== id));
+  };
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!flowName.trim()) {
+      alert("Please enter a Test Flow Name");
+      return;
+    }
+
+    setSaving(true);
+    try {
+      if (isEdit && testId) {
+        await supabase
+          .from("tests")
+          .update({
+            name: flowName,
+            steps: steps,
+            updated_at: new Date().toISOString(),
+          })
+          .eq("id", testId);
+      } else {
+        await supabase.from("tests").insert({
+          project_id: projectId,
+          name: flowName,
+          steps: steps,
+          created_at: new Date().toISOString(),
+        });
+      }
+
+      router.push(`/projects/${projectId}`);
+    } catch (err) {
+      console.error("Save error:", err);
+    } finally {
+      setSaving(false);
+    }
   };
 
   return (
-    <div className="space-y-4">
-      <div className="flex justify-between items-center">
-        <h3 className="text-lg font-semibold text-gray-800">
-          Execution Steps ({steps.length})
-        </h3>
-        <div className="flex gap-2">
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            onClick={() => addStep("browser")}
-            className="flex items-center gap-1.5"
-          >
-            <Globe className="w-4 h-4 text-blue-600" />
-            + Add Browser Step
-          </Button>
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            onClick={() => addStep("api")}
-            className="flex items-center gap-1.5"
-          >
-            <Server className="w-4 h-4 text-amber-600" />
-            + Add API Step
-          </Button>
+    <div className="min-h-screen bg-[#F8FAFC] text-slate-900 font-sans pb-24">
+      {/* Navbar */}
+      <header className="bg-white border-b border-slate-200 px-8 py-3.5 flex items-center justify-between">
+        <div className="flex items-center space-x-6">
+          <Link href="/dashboard" className="flex items-center space-x-2">
+            <span className="bg-[#2563EB] text-white font-black text-sm px-2.5 py-1 rounded-md tracking-wider">
+              AG
+            </span>
+            <span className="font-bold text-xl text-slate-900 tracking-tight">
+              AssertGrid
+            </span>
+          </Link>
+          <span className="text-slate-500 text-sm font-medium">Dashboard</span>
         </div>
-      </div>
 
-      {steps.map((step, index) => {
-        const isAssertion =
-          step.category === "assertion" || ASSERTION_VALUES.has(step.action);
+        <div className="flex items-center space-x-2 bg-emerald-50 text-emerald-700 px-3 py-1 rounded-full border border-emerald-200 text-xs font-semibold">
+          <span className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse" />
+          <span>System Operational</span>
+        </div>
+      </header>
 
-        return (
-          <Card key={index} className="border border-gray-200 shadow-sm relative">
-            <CardContent className="p-4 space-y-4">
-              <div className="flex items-center justify-between gap-3 border-b pb-3">
-                <div className="flex items-center gap-2 flex-1">
-                  <span className="w-6 h-6 rounded-full bg-slate-900 text-white text-xs font-bold flex items-center justify-center">
-                    #{index + 1}
-                  </span>
-                  <Input
-                    value={step.name}
-                    onChange={(e) => updateStep(index, { name: e.target.value })}
-                    placeholder="Step name..."
-                    className="max-w-xs h-8 text-sm"
-                  />
-                </div>
+      {/* Main Container */}
+      <main className="max-w-4xl mx-auto px-6 pt-8 space-y-6">
+        <div className="bg-white border border-slate-200 rounded-2xl p-8 shadow-xs">
+          <form onSubmit={handleSubmit} className="space-y-6">
+            <h1 className="text-2xl font-bold text-slate-900 tracking-tight">
+              {isEdit ? "Edit Test Case" : "Create Test Case"}
+            </h1>
 
-                <div className="flex items-center gap-2">
-                  <span
-                    className={`text-xs px-2 py-0.5 rounded font-medium ${
-                      step.type === "browser"
-                        ? "bg-blue-100 text-blue-700"
-                        : "bg-amber-100 text-amber-700"
-                    }`}
-                  >
-                    {step.type === "browser" ? "Web Browser" : "API Call"}
-                  </span>
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => removeStep(index)}
-                    className="h-8 w-8 p-0 text-red-500 hover:text-red-700 hover:bg-red-50"
-                  >
-                    <Trash2 className="w-4 h-4" />
-                  </Button>
-                </div>
+            {/* Test Flow Name Input */}
+            <div className="space-y-1.5">
+              <label className="block text-xs font-semibold text-slate-600">
+                Test Flow Name
+              </label>
+              <input
+                type="text"
+                value={flowName}
+                onChange={(e) => setFlowName(e.target.value)}
+                placeholder="Login Page"
+                className="w-full bg-white border border-slate-200 rounded-lg px-4 py-2.5 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
+              />
+            </div>
+
+            {/* Header Steps Bar */}
+            <div className="flex items-center justify-between pt-2">
+              <h2 className="text-base font-bold text-slate-900">
+                Execution Steps ({steps.length})
+              </h2>
+
+              <div className="flex items-center space-x-2">
+                <button
+                  type="button"
+                  onClick={handleAddBrowserStep}
+                  className="bg-white hover:bg-slate-50 border border-slate-200 text-slate-700 text-xs font-semibold px-3 py-1.5 rounded-lg transition shadow-xs flex items-center space-x-1.5"
+                >
+                  <span className="text-blue-600">🌐</span>
+                  <span>+ Add Browser Step</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={handleAddApiStep}
+                  className="bg-white hover:bg-slate-50 border border-slate-200 text-slate-700 text-xs font-semibold px-3 py-1.5 rounded-lg transition shadow-xs flex items-center space-x-1.5"
+                >
+                  <span className="text-amber-500">⚡</span>
+                  <span>+ Add API Step</span>
+                </button>
               </div>
+            </div>
 
-              {/* BROWSER STEP CONTROLS */}
-              {step.type === "browser" && (
-                <div className="space-y-4">
-                  {/* Step Type Switcher: [ Action ] vs [ Assertion ] */}
-                  <div>
-                    <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5">
-                      Step Mode
+            {/* Execution Steps List */}
+            <div className="space-y-4">
+              {steps.map((step, index) => (
+                <div
+                  key={step.id}
+                  className="border border-slate-200 rounded-2xl p-5 shadow-xs bg-white space-y-4"
+                >
+                  {/* Step Header */}
+                  <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+                    <div className="flex items-center space-x-3 w-full max-w-sm">
+                      <span className="bg-slate-900 text-white font-bold text-xs px-2 py-0.5 rounded-full">
+                        #{index + 1}
+                      </span>
+                      <input
+                        type="text"
+                        value={step.name}
+                        onChange={(e) =>
+                          updateStep(step.id, { name: e.target.value })
+                        }
+                        className="border border-slate-200 rounded-lg px-3 py-1 text-sm font-medium text-slate-800 w-full focus:outline-none focus:border-blue-500"
+                      />
+                    </div>
+
+                    <div className="flex items-center space-x-3">
+                      <span className="bg-blue-50 text-blue-600 text-xs font-semibold px-2.5 py-1 rounded-md">
+                        {step.category === "browser" ? "Web Browser" : "API Step"}
+                      </span>
+                      {steps.length > 1 && (
+                        <button
+                          type="button"
+                          onClick={() => removeStep(step.id)}
+                          className="text-red-400 hover:text-red-600 transition p-1"
+                        >
+                          🗑️
+                        </button>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Step Mode Pill */}
+                  <div className="space-y-1.5">
+                    <label className="block text-2xs font-bold text-slate-400 uppercase tracking-wider">
+                      STEP MODE
                     </label>
-                    <div className="inline-flex rounded-lg border border-gray-200 bg-gray-50 p-1">
+                    <div className="inline-flex bg-slate-100 p-1 rounded-xl border border-slate-200/80 space-x-1">
                       <button
                         type="button"
-                        onClick={() =>
-                          updateStep(index, {
-                            category: "action",
-                            action: "goto",
-                          })
-                        }
-                        className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-all ${
-                          !isAssertion
-                            ? "bg-white text-blue-600 shadow-xs border border-gray-200 font-semibold"
-                            : "text-gray-600 hover:text-gray-900"
+                        onClick={() => updateStep(step.id, { mode: "action" })}
+                        className={`px-3 py-1 rounded-lg text-xs font-semibold transition flex items-center space-x-1.5 ${
+                          step.mode === "action"
+                            ? "bg-white text-blue-600 shadow-xs"
+                            : "text-slate-500 hover:text-slate-800"
                         }`}
                       >
-                        <Play className="w-3.5 h-3.5" />
-                        Action
+                        <span>▷ Action</span>
                       </button>
                       <button
                         type="button"
-                        onClick={() =>
-                          updateStep(index, {
-                            category: "assertion",
-                            action: "toBeVisible",
-                          })
-                        }
-                        className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-all ${
-                          isAssertion
-                            ? "bg-white text-emerald-600 shadow-xs border border-gray-200 font-semibold"
-                            : "text-gray-600 hover:text-gray-900"
+                        onClick={() => updateStep(step.id, { mode: "assertion" })}
+                        className={`px-3 py-1 rounded-lg text-xs font-semibold transition flex items-center space-x-1.5 ${
+                          step.mode === "assertion"
+                            ? "bg-white text-emerald-600 shadow-xs"
+                            : "text-slate-500 hover:text-slate-800"
                         }`}
                       >
-                        <CheckSquare className="w-3.5 h-3.5" />
-                        Assertion
+                        <span>☑ Assertion</span>
                       </button>
                     </div>
                   </div>
 
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <div>
-                      <label className="block text-xs font-medium text-gray-700 mb-1">
-                        {isAssertion ? "Assertion Type" : "Browser Action"}
-                      </label>
-                      <select
-                        value={step.action}
-                        onChange={(e) =>
-                          updateStep(index, { action: e.target.value })
-                        }
-                        className="w-full h-9 rounded-md border border-gray-300 bg-white px-3 py-1 text-sm shadow-xs focus:outline-none focus:ring-2 focus:ring-blue-500"
-                      >
-                        {(isAssertion ? ASSERTION_OPTIONS : ACTION_OPTIONS).map(
-                          (opt) => (
-                            <option key={opt.value} value={opt.value}>
-                              {opt.label}
-                            </option>
-                          )
+                  {/* Browser Action Mode */}
+                  {step.category === "browser" && step.mode === "action" && (
+                    <div className="space-y-4">
+                      <div className="grid grid-cols-12 gap-4">
+                        <div className="col-span-6">
+                          <label className="block text-xs font-semibold text-slate-500 mb-1">
+                            Browser Action
+                          </label>
+                          <select
+                            value={step.action || "goto"}
+                            onChange={(e) =>
+                              updateStep(step.id, { action: e.target.value })
+                            }
+                            className="w-full bg-white border border-slate-200 rounded-lg px-3 py-2 text-sm text-slate-800 focus:outline-none focus:border-blue-500"
+                          >
+                            {BROWSER_ACTIONS.map((act) => (
+                              <option key={act.value} value={act.value}>
+                                {act.label}
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+
+                        {step.action === "goto" ? (
+                          <div className="col-span-6">
+                            <label className="block text-xs font-semibold text-slate-500 mb-1">
+                              Target Page URL
+                            </label>
+                            <input
+                              type="text"
+                              value={step.targetUrl || ""}
+                              onChange={(e) =>
+                                updateStep(step.id, { targetUrl: e.target.value })
+                              }
+                              placeholder="https://www.saucedemo.com/"
+                              className="w-full bg-white border border-slate-200 rounded-lg px-3 py-2 text-sm text-slate-800 focus:outline-none focus:border-blue-500"
+                            />
+                          </div>
+                        ) : (
+                          <div className="col-span-6">
+                            <label className="block text-xs font-semibold text-slate-500 mb-1">
+                              Element Selector (CSS / XPath)
+                            </label>
+                            <input
+                              type="text"
+                              value={step.selector || ""}
+                              onChange={(e) =>
+                                updateStep(step.id, { selector: e.target.value })
+                              }
+                              placeholder="[name='user-name']"
+                              className="w-full bg-white border border-slate-200 rounded-lg px-3 py-2 text-sm text-slate-800 focus:outline-none focus:border-blue-500"
+                            />
+                          </div>
                         )}
-                      </select>
-                    </div>
-
-                    {/* URL Field for Navigation / URL assertions */}
-                    {(step.action === "goto" || step.action === "toHaveURL") && (
-                      <div>
-                        <label className="block text-xs font-medium text-gray-700 mb-1">
-                          {step.action === "toHaveURL"
-                            ? "Expected URL / Path"
-                            : "Target Page URL"}
-                        </label>
-                        <Input
-                          value={step.url}
-                          onChange={(e) =>
-                            updateStep(index, { url: e.target.value })
-                          }
-                          placeholder="https://example.com/login"
-                          className="h-9 text-sm"
-                        />
                       </div>
-                    )}
 
-                    {/* Element Selector Field */}
-                    {step.action !== "goto" && step.action !== "toHaveURL" && (
-                      <div>
-                        <label className="block text-xs font-medium text-gray-700 mb-1">
+                      {step.action === "fill" && (
+                        <div>
+                          <label className="block text-xs font-semibold text-slate-500 mb-1">
+                            Input Value
+                          </label>
+                          <input
+                            type="text"
+                            value={step.value || ""}
+                            onChange={(e) =>
+                              updateStep(step.id, { value: e.target.value })
+                            }
+                            placeholder="standard_user"
+                            className="w-full bg-white border border-slate-200 rounded-lg px-3 py-2 text-sm text-slate-800 focus:outline-none focus:border-blue-500"
+                          />
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {/* Browser Assertion Mode */}
+                  {step.category === "browser" && step.mode === "assertion" && (
+                    <div className="grid grid-cols-12 gap-4">
+                      <div className="col-span-6">
+                        <label className="block text-xs font-semibold text-slate-500 mb-1">
+                          Assertion Type
+                        </label>
+                        <select
+                          value={step.assertionType || "toBeVisible"}
+                          onChange={(e) =>
+                            updateStep(step.id, { assertionType: e.target.value })
+                          }
+                          className="w-full bg-white border border-slate-200 rounded-lg px-3 py-2 text-sm text-slate-800 focus:outline-none focus:border-blue-500"
+                        >
+                          {ASSERTION_TYPES.map((assert) => (
+                            <option key={assert.value} value={assert.value}>
+                              {assert.label}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+
+                      <div className="col-span-6">
+                        <label className="block text-xs font-semibold text-slate-500 mb-1">
                           Element Selector (CSS / XPath)
                         </label>
-                        <Input
+                        <input
+                          type="text"
                           value={step.selector || ""}
                           onChange={(e) =>
-                            updateStep(index, { selector: e.target.value })
+                            updateStep(step.id, { selector: e.target.value })
                           }
                           placeholder="#submit-btn, .login-input, input[name='email']"
-                          className="h-9 text-sm"
+                          className="w-full bg-white border border-slate-200 rounded-lg px-3 py-2 text-sm text-slate-800 focus:outline-none focus:border-blue-500"
                         />
                       </div>
-                    )}
-                  </div>
+                    </div>
+                  )}
 
-                  {/* Dynamic Value Input for Actions/Assertions requiring values */}
-                  {[
-                    "fill",
-                    "selectOption",
-                    "press",
-                    "toHaveText",
-                    "toContainText",
-                    "toHaveValue",
-                    "toHaveAttribute",
-                  ].includes(step.action) && (
-                    <div>
-                      <label className="block text-xs font-medium text-gray-700 mb-1">
-                        {step.action === "toHaveAttribute"
-                          ? 'Attribute Name & Expected Value (e.g. disabled="true")'
-                          : isAssertion
-                          ? "Expected Value / Text"
-                          : "Input Value"}
-                      </label>
-                      <Input
-                        value={step.value || ""}
-                        onChange={(e) =>
-                          updateStep(index, { value: e.target.value })
-                        }
-                        placeholder={
-                          isAssertion
-                            ? "e.g. Welcome Back or active"
-                            : "Value to type or enter..."
-                        }
-                        className="h-9 text-sm"
-                      />
+                  {/* API Mode */}
+                  {step.category === "api" && (
+                    <div className="grid grid-cols-12 gap-4">
+                      <div className="col-span-3">
+                        <label className="block text-xs font-semibold text-slate-500 mb-1">
+                          Method
+                        </label>
+                        <select
+                          value={step.method || "GET"}
+                          onChange={(e) =>
+                            updateStep(step.id, {
+                              method: e.target.value as TestStep["method"],
+                            })
+                          }
+                          className="w-full bg-white border border-slate-200 rounded-lg px-3 py-2 text-sm font-medium text-slate-800 focus:outline-none focus:border-blue-500"
+                        >
+                          <option value="GET">GET</option>
+                          <option value="POST">POST</option>
+                          <option value="PUT">PUT</option>
+                          <option value="PATCH">PATCH</option>
+                          <option value="DELETE">DELETE</option>
+                        </select>
+                      </div>
+
+                      <div className="col-span-6">
+                        <label className="block text-xs font-semibold text-slate-500 mb-1">
+                          Endpoint URL
+                        </label>
+                        <input
+                          type="text"
+                          value={step.endpointUrl || ""}
+                          onChange={(e) =>
+                            updateStep(step.id, { endpointUrl: e.target.value })
+                          }
+                          placeholder="https://api.example.com/v1/health"
+                          className="w-full bg-white border border-slate-200 rounded-lg px-3 py-2 text-sm text-slate-800 focus:outline-none focus:border-blue-500"
+                        />
+                      </div>
+
+                      <div className="col-span-3">
+                        <label className="block text-xs font-semibold text-slate-500 mb-1">
+                          Expected Status
+                        </label>
+                        <input
+                          type="number"
+                          value={step.expectedStatus ?? 200}
+                          onChange={(e) =>
+                            updateStep(step.id, {
+                              expectedStatus: Number(e.target.value),
+                            })
+                          }
+                          placeholder="200"
+                          className="w-full bg-white border border-slate-200 rounded-lg px-3 py-2 text-sm text-slate-800 focus:outline-none focus:border-blue-500"
+                        />
+                      </div>
                     </div>
                   )}
                 </div>
-              )}
+              ))}
+            </div>
 
-              {/* API STEP CONTROLS */}
-              {step.type === "api" && (
-                <div className="space-y-3">
-                  <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
-                    <div>
-                      <label className="block text-xs font-medium text-gray-700 mb-1">
-                        Method
-                      </label>
-                      <select
-                        value={step.method}
-                        onChange={(e) =>
-                          updateStep(index, { method: e.target.value })
-                        }
-                        className="w-full h-9 rounded-md border border-gray-300 bg-white px-3 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                      >
-                        <option value="GET">GET</option>
-                        <option value="POST">POST</option>
-                        <option value="PUT">PUT</option>
-                        <option value="PATCH">PATCH</option>
-                        <option value="DELETE">DELETE</option>
-                      </select>
-                    </div>
-
-                    <div className="md:col-span-2">
-                      <label className="block text-xs font-medium text-gray-700 mb-1">
-                        Endpoint URL
-                      </label>
-                      <Input
-                        value={step.url}
-                        onChange={(e) =>
-                          updateStep(index, { url: e.target.value })
-                        }
-                        placeholder="https://api.example.com/v1/users"
-                        className="h-9 text-sm"
-                      />
-                    </div>
-
-                    <div>
-                      <label className="block text-xs font-medium text-gray-700 mb-1">
-                        Expected Status
-                      </label>
-                      <Input
-                        type="number"
-                        value={step.expected_status ?? 200}
-                        onChange={(e) =>
-                          updateStep(index, {
-                            expected_status: parseInt(e.target.value) || 200,
-                          })
-                        }
-                        className="h-9 text-sm"
-                      />
-                    </div>
-                  </div>
-                </div>
-              )}
-            </CardContent>
-          </Card>
-        );
-      })}
-
-      {steps.length === 0 && (
-        <div className="text-center py-8 border-2 border-dashed border-gray-200 rounded-lg text-gray-500 text-sm">
-          No execution steps added yet. Choose a step type above to start building.
+            {/* Bottom Form Actions */}
+            <div className="flex justify-end items-center space-x-3 pt-4">
+              <button
+                type="button"
+                onClick={() => router.back()}
+                className="bg-white border border-slate-200 hover:bg-slate-50 text-slate-700 text-xs font-semibold px-4 py-2 rounded-lg transition"
+              >
+                Cancel
+              </button>
+              <button
+                type="submit"
+                disabled={saving}
+                className="bg-black hover:bg-slate-800 text-white text-xs font-semibold px-5 py-2.5 rounded-lg transition disabled:opacity-50 shadow-xs"
+              >
+                {saving ? "Saving..." : "Save Test Flow"}
+              </button>
+            </div>
+          </form>
         </div>
-      )}
+      </main>
+
+      {/* Floating AI Assistant Button */}
+      <div className="fixed bottom-6 right-8">
+        <button className="bg-[#2563EB] hover:bg-blue-700 text-white font-bold text-xs px-5 py-3 rounded-full shadow-lg flex items-center space-x-2 transition hover:scale-105">
+          <span>✨</span>
+          <span>AssertGrid AI Assistant</span>
+        </button>
+      </div>
     </div>
   );
 }

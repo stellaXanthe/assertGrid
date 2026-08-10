@@ -1,262 +1,59 @@
 "use client";
 
-import { useState, useEffect, use } from "react";
-import { useRouter } from "next/navigation";
-import { createClient } from "@/lib/supabase/client";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { StepBuilder, TestStep } from "@/components/test-builder/StepBuilder";
-import Link from "next/link";
+import { useEffect, useState } from "react";
+import { useParams } from "next/navigation";
+import { createClient } from "../../../../../../lib/supabase/client";
+import StepBuilder, { type TestStep } from "@/components/test-builder/StepBuilder";
 
-interface DBSchemaStep {
-  type?: string;
-  name?: string;
-  category?: "action" | "assertion";
-  action?: string;
-  url?: string;
-  selector?: string;
-  value?: string;
-  method?: string;
-  headers?: unknown;
-  body?: unknown;
-  expected_status?: number;
-  extract?: Record<string, string>;
-}
+export default function EditTestPage() {
+  const params = useParams();
+  const projectId = params?.id as string;
+  const testId = params?.testId as string;
 
-const ASSERTION_TYPES = new Set([
-  "toBeVisible",
-  "toBeHidden",
-  "toHaveText",
-  "toContainText",
-  "toHaveValue",
-  "toHaveAttribute",
-  "toBeEnabled",
-  "toBeDisabled",
-  "toHaveURL",
-]);
-
-export default function EditTestPage({
-  params,
-}: {
-  params: Promise<{ id: string; testId: string }>;
-}) {
-  const router = useRouter();
-  const supabase = createClient();
-
-  const { id: projectId, testId } = use(params);
-
-  const [name, setName] = useState("");
-  const [testType, setTestType] = useState<string>("api");
-  const [loading, setLoading] = useState(true);
-  const [submitting, setSubmitting] = useState(false);
+  const [testName, setTestName] = useState("Login Page");
   const [steps, setSteps] = useState<TestStep[]>([]);
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    async function fetchTestCase() {
-      setLoading(true);
-      const { data, error } = await supabase
-        .from("test_cases")
-        .select("*")
-        .eq("id", testId)
-        .single();
+    const supabase = createClient();
 
-      if (error || !data) {
-        alert("Failed to load test case.");
-        router.push(`/projects/${projectId}`);
-        return;
+    async function loadTestData() {
+      try {
+        const { data } = await supabase
+          .from("tests")
+          .select("*")
+          .eq("id", testId)
+          .single();
+
+        if (data) {
+          setTestName(data.name || "Login Page");
+          setSteps(data.steps || []);
+        }
+      } catch (err) {
+        console.error("Failed to load test:", err);
+      } finally {
+        setLoading(false);
       }
-
-      setName(data.name || "");
-      setTestType(data.type || "api");
-
-      if (Array.isArray(data.steps)) {
-        const mappedSteps: TestStep[] = data.steps.map((s: DBSchemaStep) => {
-          if (s.type === "browser") {
-            const action = s.action || "goto";
-            const category =
-              s.category || (ASSERTION_TYPES.has(action) ? "assertion" : "action");
-
-            return {
-              name: s.name || "",
-              type: "browser",
-              category,
-              action,
-              url: s.url || "",
-              selector: s.selector || "",
-              value: s.value || "",
-              method: "GET",
-              headers: "{}",
-              body: "{}",
-              expected_status: 200,
-              extractRules: [],
-            };
-          }
-
-          const extractRules = Object.entries(s.extract || {}).map(
-            ([varName, jsonPath]) => ({
-              varName,
-              jsonPath: String(jsonPath),
-            })
-          );
-
-          return {
-            name: s.name || "",
-            type: "api",
-            category: "action",
-            method: s.method || "GET",
-            url: s.url || "",
-            headers: JSON.stringify(s.headers || {}, null, 2),
-            body: JSON.stringify(s.body || {}, null, 2),
-            expected_status: s.expected_status ?? 200,
-            extractRules,
-            action: "goto",
-            selector: "",
-            value: "",
-          };
-        });
-
-        setSteps(mappedSteps);
-      }
-
-      setLoading(false);
     }
 
-    if (testId) {
-      fetchTestCase();
-    }
-  }, [testId, projectId, router, supabase]);
-
-  async function handleUpdate(e: React.FormEvent) {
-    e.preventDefault();
-    setSubmitting(true);
-
-    try {
-      const formattedSteps = steps.map((s) => {
-        if (s.type === "browser") {
-          return {
-            name: s.name,
-            type: "browser",
-            category: s.category || "action",
-            action: s.action,
-            url: s.url,
-            selector: s.selector,
-            value: s.value,
-          };
-        }
-
-        let parsedHeaders = {};
-        let parsedBody = null;
-
-        try {
-          parsedHeaders = JSON.parse(s.headers || "{}");
-        } catch {
-          throw new Error(`Invalid JSON headers in step: "${s.name}"`);
-        }
-
-        if (["POST", "PUT", "PATCH"].includes(s.method || "")) {
-          try {
-            parsedBody = JSON.parse(s.body || "{}");
-          } catch {
-            throw new Error(`Invalid JSON body in step: "${s.name}"`);
-          }
-        }
-
-        const extractObject: Record<string, string> = {};
-        (s.extractRules || []).forEach((rule) => {
-          if (rule.varName.trim() && rule.jsonPath.trim()) {
-            extractObject[rule.varName.trim()] = rule.jsonPath.trim();
-          }
-        });
-
-        return {
-          name: s.name,
-          type: "api",
-          method: s.method,
-          url: s.url,
-          headers: parsedHeaders,
-          body: parsedBody,
-          expected_status: s.expected_status,
-          extract: extractObject,
-        };
-      });
-
-      const { error } = await supabase
-        .from("test_cases")
-        .update({
-          name,
-          type: testType,
-          steps: formattedSteps,
-        })
-        .eq("id", testId);
-
-      if (error) {
-        alert(`Error updating test: ${error.message}`);
-      } else {
-        router.push(`/projects/${projectId}`);
-      }
-    } catch (err: unknown) {
-      const errorMessage =
-        err instanceof Error ? err.message : "Failed to update test.";
-      alert(errorMessage);
-    } finally {
-      setSubmitting(false);
-    }
-  }
+    if (testId) loadTestData();
+  }, [testId]);
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-gray-50 p-8 flex justify-center items-center">
-        <p className="text-gray-500 text-sm">Loading test details...</p>
+      <div className="min-h-screen bg-[#F8FAFC] flex items-center justify-center text-sm font-semibold text-slate-500">
+        Loading Test Case...
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-gray-50 p-8">
-      <div className="max-w-4xl mx-auto space-y-6">
-        <Link
-          href={`/projects/${projectId}`}
-          className="text-sm text-blue-600 hover:underline"
-        >
-          ← Back to Project
-        </Link>
-
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-2xl font-bold">Edit Test Case</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <form onSubmit={handleUpdate} className="space-y-6">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Test Flow Name
-                </label>
-                <Input
-                  type="text"
-                  value={name}
-                  onChange={(e) => setName(e.target.value)}
-                  placeholder="e.g. End-to-End User Login & Dashboard Check"
-                  required
-                />
-              </div>
-
-              <StepBuilder steps={steps} onChange={setSteps} />
-
-              <div className="flex justify-end gap-3 pt-4 border-t">
-                <Link href={`/projects/${projectId}`}>
-                  <Button type="button" variant="outline">
-                    Cancel
-                  </Button>
-                </Link>
-                <Button type="submit" disabled={submitting}>
-                  {submitting ? "Updating..." : "Update Test Case"}
-                </Button>
-              </div>
-            </form>
-          </CardContent>
-        </Card>
-      </div>
-    </div>
+    <StepBuilder
+      projectId={projectId}
+      testId={testId}
+      initialName={testName}
+      initialSteps={steps}
+      isEdit={true}
+    />
   );
 }

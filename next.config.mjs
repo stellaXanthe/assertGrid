@@ -1,8 +1,10 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
-  serverExternalPackages: ["playwright-core", "@sparticuz/chromium"],
-  outputFileTracingIncludes: {
-    "/api/**/*": ["./node_modules/playwright-core/**"],
+  experimental: {
+    serverComponentsExternalPackages: ["playwright-core", "@sparticuz/chromium"],
+    outputFileTracingIncludes: {
+      "/api/**/*": ["./node_modules/playwright-core/**"],
+    },
   },
 };
 

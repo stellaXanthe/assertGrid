@@ -9,7 +9,12 @@
     "lint": "next lint"
   },
   "dependencies": {
+    "@ai-sdk/groq": "^4.0.26",
+    "@ai-sdk/openai": "^4.0.36",
+    "@ai-sdk/react": "^4.0.61",
+    "@base-ui/react": "^1.7.0",
     "@sparticuz/chromium": "^123.0.0",
+    "@supabase/ssr": "^0.12.4",
     "@supabase/supabase-js": "^2.112.2",
     "@tailwindcss/postcss": "^4.3.3",
     "ai": "^7.0.58",
@@ -18,7 +23,9 @@
     "groq-sdk": "^0.15.0",
     "lucide-react": "^0.469.0",
     "next": "^14.2.0",
-    "playwright-core": "^1.42.1"
+    "playwright-core": "^1.42.1",
+    "tailwind-merge": "^3.6.0",
+    "tailwindcss-animate": "^1.0.7"
   },
   "devDependencies": {
     "@types/node": "^20.17.10",
