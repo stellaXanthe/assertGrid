@@ -7,6 +7,24 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { AiAssistant } from "@/components/AiAssistant";
 import { TestExecutionView } from "@/components/TestExecutionView";
+import { LiveTestView } from "@/components/LiveTestView";
+
+async function safeParseResponse(response: Response) {
+  const text = await response.text();
+  if (!text) {
+    throw new Error(
+      `Server returned an empty response (status ${response.status}). ` +
+        `This usually means the function timed out or crashed.`
+    );
+  }
+  try {
+    return JSON.parse(text);
+  } catch {
+    throw new Error(
+      `Server returned a non-JSON response (status ${response.status}): ${text.slice(0, 200)}`
+    );
+  }
+}
 
 export default function ProjectDetailsPage() {
   const params = useParams();
@@ -21,6 +39,9 @@ export default function ProjectDetailsPage() {
   const [isRunningAll, setIsRunningAll] = useState(false);
   const [selectedRunResult, setSelectedRunResult] = useState<any | null>(null);
   const [executionView, setExecutionView] = useState<any | null>(null);
+  const [liveTest, setLiveTest] = useState<{ test: any; steps: any[]; startedAt: Date } | null>(
+    null
+  );
   const [runMode, setRunMode] = useState<"headless" | "headed">("headless");
 
   const fetchProjectData = useCallback(async () => {
@@ -48,7 +69,6 @@ export default function ProjectDetailsPage() {
     }
   }, [projectId, supabase]);
 
-  // Fetch this project's runs directly (canonical source for analytics)
   const fetchRuns = useCallback(async () => {
     if (!projectId) return;
     try {
@@ -72,7 +92,6 @@ export default function ProjectDetailsPage() {
     fetchRuns();
   }, [fetchRuns]);
 
-  // Live analytics for THIS project, recomputed whenever runs change
   const analytics = useMemo(() => {
     const total = runs.length;
     const passed = runs.filter((r) => String(r.status).toLowerCase() === "passed").length;
@@ -104,29 +123,38 @@ export default function ProjectDetailsPage() {
     } catch (err) {
       console.error("Failed to record run:", err);
     } finally {
-      // Refresh this project's analytics immediately
       fetchRuns();
     }
   };
 
+  const getStepsForTest = (test: any) => {
+    return test.steps && Array.isArray(test.steps) && test.steps.length > 0
+      ? test.steps
+      : [
+          {
+            name: test.title || "Step 1",
+            method: test.method || "GET",
+            url: test.url || test.target_url || "",
+            expectedStatus: test.expected_status || 200,
+          },
+        ];
+  };
+
+  const isWebTestCase = (test: any, stepsToRun: any[]) =>
+    test.type === "web" ||
+    stepsToRun.some((s: any) => s.type === "browser" || s.action || s.assertionType);
+
   const handleRunTest = async (test: any) => {
     setRunningTestId(test.id);
     const startedAt = new Date();
+    const stepsToRun = getStepsForTest(test);
+    const isWebTest = isWebTestCase(test, stepsToRun);
+
     try {
-      const stepsToRun =
-        test.steps && Array.isArray(test.steps) && test.steps.length > 0
-          ? test.steps
-          : [
-              {
-                name: test.title || "Step 1",
-                method: test.method || "GET",
-                url: test.url || test.target_url || "",
-                expectedStatus: test.expected_status || 200,
-              },
-            ];
-      const isWebTest =
-        test.type === "web" ||
-        stepsToRun.some((s: any) => s.type === "browser" || s.action || s.assertionType);
+      if (isWebTest && runMode === "headed") {
+        setLiveTest({ test, steps: stepsToRun, startedAt });
+        return;
+      }
 
       if (isWebTest) {
         const response = await fetch("/api/run-web-test", {
@@ -134,7 +162,7 @@ export default function ProjectDetailsPage() {
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ testId: test.id, steps: stepsToRun, mode: runMode }),
         });
-        const data = await response.json();
+        const data = await safeParseResponse(response);
         if (!response.ok) throw new Error(data.error || "Failed to run test.");
         setExecutionView({ ...data, testTitle: test.title || test.name || "Test Execution" });
         await recordRun(
@@ -150,7 +178,7 @@ export default function ProjectDetailsPage() {
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ testId: test.id, steps: stepsToRun }),
         });
-        const data = await response.json();
+        const data = await safeParseResponse(response);
         if (!response.ok) throw new Error(data.error || "Failed to run test.");
         setSelectedRunResult({ testTitle: test.title || test.name || "Test Execution", ...data });
         await recordRun(
@@ -161,6 +189,7 @@ export default function ProjectDetailsPage() {
           data
         );
       }
+      setRunningTestId(null);
     } catch (err: unknown) {
       await recordRun(
         test,
@@ -170,15 +199,48 @@ export default function ProjectDetailsPage() {
         { error: err instanceof Error ? err.message : "Failed to run test." }
       );
       alert(err instanceof Error ? err.message : "Failed to run test.");
-    } finally {
       setRunningTestId(null);
     }
+  };
+
+  const handleLiveComplete = async (result: {
+    success: boolean;
+    stepsEvaluated: number;
+    targetUrl?: string;
+    details: any[];
+  }) => {
+    if (!liveTest) return;
+    await recordRun(
+      liveTest.test,
+      liveTest.startedAt,
+      result.success ? "passed" : "failed",
+      Date.now() - liveTest.startedAt.getTime(),
+      result
+    );
+    setRunningTestId(null);
+  };
+
+  const handleCloseLiveView = () => {
+    setLiveTest(null);
+    setRunningTestId(null);
   };
 
   const handleRunAllTests = async () => {
     if (tests.length === 0) return;
     setIsRunningAll(true);
-    for (const test of tests) await handleRunTest(test);
+    for (const test of tests) {
+      await handleRunTest(test);
+      if (runMode === "headed") {
+        await new Promise<void>((resolve) => {
+          const check = setInterval(() => {
+            if (!liveTest) {
+              clearInterval(check);
+              resolve();
+            }
+          }, 300);
+        });
+      }
+    }
     setIsRunningAll(false);
   };
 
@@ -256,7 +318,6 @@ export default function ProjectDetailsPage() {
         </CardHeader>
       </Card>
 
-      {/* Project analytics — reflects live as soon as this page is opened / a run finishes */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
         <div className="bg-white p-5 rounded-2xl border border-slate-200/80 shadow-xs">
           <span className="text-[10px] font-bold tracking-wider text-slate-400 uppercase">
@@ -432,6 +493,15 @@ export default function ProjectDetailsPage() {
 
       {executionView && (
         <TestExecutionView result={executionView} onClose={() => setExecutionView(null)} />
+      )}
+
+      {liveTest && (
+        <LiveTestView
+          steps={liveTest.steps}
+          testTitle={liveTest.test.title || liveTest.test.name || "Live Test"}
+          onClose={handleCloseLiveView}
+          onComplete={handleLiveComplete}
+        />
       )}
 
       <AiAssistant
